@@ -1,0 +1,21 @@
+import PageBreadcrumb from "../../components/common/PageBreadcrumb";
+import ComponentCard from "../../components/common/ComponentCard";
+import BarChartOne from "../../components/charts/bar/BarChartOne";
+import PageMeta from "../../components/common/PageMeta";
+
+export default function BarChart() {
+  return (
+    <div>
+      <PageMeta
+        title="React.js Chart Dashboard | CoachMax - React.js Admin Dashboard Template"
+        description="This is React.js Chart Dashboard page for CoachMax - Coachmax Admin Dashboard Template"
+      />
+      <PageBreadcrumb pageTitle="Bar Chart" />
+      <div className="space-y-6">
+        <ComponentCard title="Bar Chart 1">
+          <BarChartOne />
+        </ComponentCard>
+      </div>
+    </div>
+  );
+}
