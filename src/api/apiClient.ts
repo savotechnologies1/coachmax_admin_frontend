@@ -3,7 +3,9 @@ import { toast } from "react-hot-toast";
 
 // Create custom Axios instance
 const apiClient = axios.create({
-  baseURL: (import.meta.env.VITE_API_BASE_URL as string) || window.location.origin,
+  baseURL:
+    (import.meta.env.VITE_API_BASE_URL as string) ||
+    (import.meta.env.PROD ? "https://coachmax.server24.in" : window.location.origin),
   timeout: 30000,
   headers: {
     "Content-Type": "application/json",
