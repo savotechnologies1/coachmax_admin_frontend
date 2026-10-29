@@ -6,6 +6,7 @@ export const APP_LOCALE = "en-GB";
 type DateValue = string | Date | null | undefined;
 const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ISO_TIMESTAMP_RE = /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:?\d{2})$/;
+const ISO_MIDNIGHT_RE = /^(\d{4}-\d{2}-\d{2})T00:00(?::00(?:\.0{1,3})?)?(?:Z|[+-]\d{2}:?\d{2})$/;
 
 export const getViewerTimeZone = (): string => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || APP_TIME_ZONE; }
@@ -34,11 +35,14 @@ export const toDateOnly = (value: DateValue): string => {
   const legacy = candidate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (legacy) candidate = `${legacy[3]}-${legacy[2]}-${legacy[1]}`;
   else if (ISO_TIMESTAMP_RE.test(candidate)) {
-    const parsed = new Date(candidate);
-    if (Number.isNaN(parsed.getTime())) return "";
-    if (candidate.endsWith("T00:00:00.000Z") || candidate.endsWith("T00:00:00Z")) {
-      candidate = candidate.slice(0, 10);
+    const midnight = candidate.match(ISO_MIDNIGHT_RE);
+    if (midnight) {
+      // Midnight timestamps represent calendar-date values at legacy call
+      // sites. Keep their written date stable instead of shifting it by offset.
+      candidate = midnight[1];
     } else {
+      const parsed = new Date(candidate);
+      if (Number.isNaN(parsed.getTime())) return "";
       const parts = new Intl.DateTimeFormat("en-CA", {
         timeZone: getViewerTimeZone(),
         year: "numeric",
