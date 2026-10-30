@@ -234,6 +234,17 @@ form :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not
   transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
 }
 
+/* The shared form padding above has higher specificity than Tailwind spacing
+   utilities. Preserve room for the leading icons and select arrows in the
+   Create Training Class form. */
+#create-class-form :is(input, select).pl-11 {
+  padding-left: 2.75rem;
+}
+
+#create-class-form select.pr-9 {
+  padding-right: 2.25rem;
+}
+
 .coachmax-select-trigger {
   display: flex;
   align-items: center;

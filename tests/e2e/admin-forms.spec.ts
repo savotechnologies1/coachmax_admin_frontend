@@ -414,6 +414,34 @@ test.describe("CoachMax form design and submission acceptance", () => {
     expect(JSON.parse(classRequest.body.toString("utf8"))).toMatchObject({ name: "U11 Thursday Skills", term: term._id, year: 2026, category: academyCategory._id, program: program._id, coach: coach._id });
   });
 
+  test("class form icons have space beside field text at desktop and mobile widths", async ({ page }) => {
+    await page.goto("/classes");
+    await page.getByRole("button", { name: /Add Class/ }).click();
+
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      const fields = await page.locator("#create-class-form input.pl-11, #create-class-form select.pl-11").evaluateAll((controls) =>
+        controls.map((control) => {
+          const icon = control.previousElementSibling;
+          const style = getComputedStyle(control);
+          return {
+            leftPadding: parseFloat(style.paddingLeft),
+            rightPadding: parseFloat(style.paddingRight),
+            iconGap: icon ? control.getBoundingClientRect().left + parseFloat(style.paddingLeft) - icon.getBoundingClientRect().right : -1,
+            isSelect: control.tagName === "SELECT",
+          };
+        })
+      );
+
+      expect(fields).toHaveLength(10);
+      for (const field of fields) {
+        expect(field.leftPadding).toBeGreaterThanOrEqual(40);
+        expect(field.iconGap).toBeGreaterThanOrEqual(6);
+        if (field.isSelect) expect(field.rightPadding).toBeGreaterThanOrEqual(32);
+      }
+    }
+  });
+
   test("verification requests retain newest-first order across app and admin sources", async ({ page }) => {
     await page.goto("/new-registration-request");
     const rows = page.locator("tbody tr");
