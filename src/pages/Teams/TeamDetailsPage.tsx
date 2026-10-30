@@ -43,8 +43,10 @@ import toast from "react-hot-toast";
 import { normalizeUploadImage, validateUploadFile } from "../../utils/fileValidation";
 import { getMediaUrl, getMediaFallback } from "../../utils/media";
 import { addDateOnlyDays, formatDateTime, todayDateOnly, toDateOnly } from "../../utils/dateTime";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 export default function TeamDetailsPage() {
+  const { can } = useCoachAccess();
   const { teamId } = useParams<{ teamId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -447,7 +449,7 @@ export default function TeamDetailsPage() {
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap">
-            <button
+            {(isExternalTeam ? can("teams", "create") : can("teams", "assign") && can("players", "assign")) && <button
               onClick={() => {
                 if (isExternalTeam) {
                   setIsAddTempModalOpen(true);
@@ -459,21 +461,21 @@ export default function TeamDetailsPage() {
             >
               <UserPlus className="w-4 h-4" />
               <span>{isExternalTeam ? "+ Add Temporary Players" : "Assign Players"}</span>
-            </button>
-            <button
+            </button>}
+            {can("teams", "edit") && <button
               onClick={handleOpenEdit}
               className="px-4 py-2 text-xs font-bold border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors rounded-none shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Edit className="w-3.5 h-3.5" />
               <span>Edit Team</span>
-            </button>
-            <button
+            </button>}
+            {can("teams", "delete") && <button
               onClick={() => setIsDeleteModalOpen(true)}
               className="px-3.5 py-2 text-xs font-bold border border-rose-200 dark:border-rose-900/40 bg-rose-50/60 dark:bg-rose-950/20 text-rose-600 hover:bg-rose-100 transition-colors rounded-none flex items-center gap-1.5 cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>Delete</span>
-            </button>
+            </button>}
           </div>
         </div>
 

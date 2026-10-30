@@ -28,6 +28,7 @@ interface PlayerFiltersProps {
   setMedicalFilter?: (val: string) => void;
   isExporting?: boolean;
   onExport?: (columns: PlayerExportColumn[]) => Promise<boolean>;
+  hideExport?: boolean;
 }
 
 export default function PlayerFilters({
@@ -50,6 +51,7 @@ export default function PlayerFilters({
   setMedicalFilter = () => { },
   isExporting = false,
   onExport,
+  hideExport = false,
 }: PlayerFiltersProps) {
   const legacyExport = useExportUsersCSV();
   const { terms = [] } = useTerms({ isEvent: "all" });
@@ -124,7 +126,7 @@ export default function PlayerFilters({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs w-full lg:w-auto">
-          {onExport ? <PlayerExportMenu scopeLabel={scopeLabel} isExporting={isExporting} onExport={onExport} /> : (
+          {hideExport ? null : onExport ? <PlayerExportMenu scopeLabel={scopeLabel} isExporting={isExporting} onExport={onExport} /> : (
             <button type="button" disabled={legacyExport.isPending} onClick={() => legacyExport.mutate(statusFilter === "All" ? "APPROVED" : statusFilter)} className="inline-flex h-11 min-h-11 min-w-[108px] items-center justify-center border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-white">Export</button>
           )}
           {setYearFilter && <div className="w-full sm:w-32 flex-1 sm:flex-initial min-w-[100px]">

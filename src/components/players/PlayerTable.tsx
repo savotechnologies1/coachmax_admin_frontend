@@ -49,6 +49,8 @@ interface PlayerTableProps {
   onRequestSourceClick?: (source: "APP" | "SUPER_ADMIN" | "COACH") => void;
   onOpenRequestedClass?: (player: Player) => void;
   showPaymentStatus?: boolean;
+  canEditPaymentStatus?: boolean;
+  canChat?: boolean;
   selectedTerm?: string;
   page?: number;
   limit?: number;
@@ -173,6 +175,8 @@ export default function PlayerTable({
   onRequestSourceClick,
   onOpenRequestedClass,
   showPaymentStatus = true,
+  canEditPaymentStatus = true,
+  canChat = true,
   selectedTerm = "All",
   page = 1,
   limit = 10,
@@ -620,7 +624,7 @@ export default function PlayerTable({
 
               return (
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {showPaymentStatus && <>
+                  {showPaymentStatus && canEditPaymentStatus && <>
                   {/* UPDATE STATUS Section */}
                   <div className="py-1">
                     <div className="px-4 pt-1.5 pb-1 text-[11px] font-extrabold text-slate-400 uppercase tracking-wider select-none">
@@ -738,14 +742,14 @@ export default function PlayerTable({
                   </>}
 
                   {/* Chat */}
-                  <div>
+                  {canChat && <div>
                     <ChatActionButton
                       contextLabel={player.fullName || "Parent"}
                       ensureRoom={() => openParentChat(player)}
                       buttonText="Chat"
                       className="w-full text-left px-4 py-2.5 text-[13px] font-semibold text-slate-800 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800 transition-colors flex items-center gap-3"
                     />
-                  </div>
+                  </div>}
 
                   {onGenerateInvoice && <>
                   {/* Generate Invoice */}

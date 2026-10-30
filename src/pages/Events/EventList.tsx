@@ -25,6 +25,7 @@ import { Dropdown } from "../../components/ui/dropdown/Dropdown";
 import { DropdownItem } from "../../components/ui/dropdown/DropdownItem";
 import ConfirmDeleteModal from "../../components/ui/modal/ConfirmDeleteModal";
 import { formatDateOnly, todayDateOnly, toDateOnly } from "../../utils/dateTime";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const PAGE_SIZE = 4;
 const EVENT_STATUSES = ["ONGOING", "UPCOMING", "COMPLETED"] as const;
@@ -76,6 +77,7 @@ const statusIcons = {
 };
 
 export default function EventList() {
+    const { can } = useCoachAccess();
     const navigate = useNavigate();
     const [events, setEvents] = useState<Event[]>([]);
     const [loading, setLoading] = useState(true);
@@ -219,13 +221,13 @@ export default function EventList() {
                 description="Comprehensive management of all tournaments and coaching programs."
             />
             <PageBreadcrumb pageTitle="Event Inventory">
-                <Link
+                {can("events", "create") && <Link
                     to="/add-event"
                     className="inline-flex items-center justify-center gap-2 bg-brand-600 px-5 py-3 text-sm font-bold text-white shadow-theme-xs transition-colors hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
                 >
                     <Plus size={16} aria-hidden="true" />
                     Add Event
-                </Link>
+                </Link>}
             </PageBreadcrumb>
 
             {loading ? (
@@ -300,7 +302,7 @@ export default function EventList() {
                                     </div>
 
                                     {/* Actions Dropdown */}
-                                    <div className="absolute top-4 right-4">
+                                    {can("events", "edit") && <div className="absolute top-4 right-4">
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -340,7 +342,7 @@ export default function EventList() {
                                                 </DropdownItem>
                                             </div>
                                         </Dropdown>
-                                    </div>
+                                    </div>}
                                 </div>
 
                                 <div className="p-6 relative">
@@ -373,7 +375,7 @@ export default function EventList() {
                                         </div>
                                         {hasReversedDates && (
                                             <div role="alert" className="border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-                                                End date is before start date. <Link to={`/edit-event/${event._id}`} onClick={(e) => e.stopPropagation()} className="underline underline-offset-2">Correct dates</Link>
+                                                End date is before start date. {can("events", "edit") && <Link to={`/edit-event/${event._id}`} onClick={(e) => e.stopPropagation()} className="underline underline-offset-2">Correct dates</Link>}
                                             </div>
                                         )}
                                     </div>
@@ -423,21 +425,21 @@ export default function EventList() {
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <button
+                                                {can("events", "delete") && <button
                                                     onClick={(e) => handleDeleteClick(event._id, e)}
                                                     className="group/btn flex items-center gap-2 px-3 py-2 bg-red-500/10 hover:bg-red-500 rounded-none text-red-500 hover:text-white transition-all font-bold text-[9px] shadow-sm"
                                                 >
                                                     <Trash2 size={12} className="group-hover/btn:scale-110 transition-transform" />
                                                     DELETE
-                                                </button>
-                                                <Link
+                                                </button>}
+                                                {can("events", "edit") && <Link
                                                     to={`/edit-event/${event._id}`}
                                                     className="group/btn flex items-center gap-2 px-3 py-2 bg-brand-500/10 hover:bg-brand-500 rounded-none text-brand-500 hover:text-white transition-all font-bold  text-[9px] shadow-sm"
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                     <Edit size={12} className="group-hover/btn:rotate-12 transition-transform" />
                                                     EDIT
-                                                </Link>
+                                                </Link>}
                                                 <Link
                                                     to={`/event-details/${event._id}`}
                                                     className="group/btn flex items-center gap-2 px-3 py-2 bg-success-500/10 hover:bg-success-500 rounded-none text-success-500 hover:text-white transition-all font-bold  text-[9px] shadow-sm"
@@ -495,7 +497,7 @@ export default function EventList() {
                 <div className="flex flex-col items-center justify-center py-40 bg-white dark:bg-gray-900 rounded-[3rem] border border-dashed border-gray-200 dark:border-gray-800">
                     <AlertCircle size={48} className="text-gray-100 mb-4" />
                     <p className="text-sm font-bold tracking-[0.3em] text-gray-400 ">No events enlisted yet.</p>
-                    <Link to="/add-event" className="mt-6 text-brand-500 font-bold hover:underline">Launch your first event</Link>
+                    {can("events", "create") && <Link to="/add-event" className="mt-6 text-brand-500 font-bold hover:underline">Launch your first event</Link>}
                 </div>
             )}
             <ConfirmDeleteModal

@@ -63,8 +63,9 @@ export default function UnallocatedPlayersCard({
                   }
                 }}
                 className="flex flex-col gap-2 p-3 rounded border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 hover:border-blue-300 dark:hover:border-blue-900 transition-all shadow-xs cursor-pointer"
-                draggable
+                draggable={Boolean(onAssignPlayer)}
                 onDragStart={(e) => {
+                  if (!onAssignPlayer) { e.preventDefault(); return; }
                   e.dataTransfer.setData("application/json", JSON.stringify({
                     playerId: p.id,
                     registrationRequestId: p.registrationRequestId,

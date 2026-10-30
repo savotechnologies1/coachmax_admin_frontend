@@ -11,10 +11,12 @@ import Button from "../../components/ui/button/Button";
 import toast from "react-hot-toast";
 import { getMediaUrl } from "../../utils/media";
 import { openMediaInNewTab } from "../../utils/privateMedia";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const formatDate = (value: string) => formatTimestampDate(value) || "N/A";
 
 export default function Transactions() {
+  const { can } = useCoachAccess();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -258,7 +260,7 @@ export default function Transactions() {
                         </span>
                       </td>
                       <td className="py-4 px-4 text-right">
-                        {txn.status === "PENDING" && (
+                        {txn.status === "PENDING" && can("payments", "approve") && (
                           <div className="flex justify-end gap-2">
                             <button
                               onClick={(e) => {

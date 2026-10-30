@@ -18,6 +18,7 @@ import { downloadPlayersCsv, type PlayerExportColumn } from "../../components/pl
 import Pagination from "../../components/common/Pagination";
 import { UserPlus } from "lucide-react";
 import toast from "react-hot-toast";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -31,6 +32,7 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 export default function PlayersManagement() {
+  const access = useCoachAccess();
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [yearFilter, setYearFilter] = useState(getCurrentYearString);
@@ -200,6 +202,7 @@ export default function PlayersManagement() {
             setMedicalFilter={setMedicalFilter}
             isExporting={isExporting}
             onExport={handleExport}
+            hideExport={!access.can("players", "export")}
           />
 
           {isLoading ? (
@@ -220,12 +223,14 @@ export default function PlayersManagement() {
                 players={players}
                 selectedPlayerId={selectedPlayer ? selectedPlayer._id : ""}
                 onSelectPlayer={setSelectedPlayer}
-                onEditPlayer={setPlayerToEdit}
-                onDeletePlayer={handleDeletePlayer}
-                onAssignClass={handleAssignPlayer}
-                onGenerateInvoice={handleGenerateInvoice}
-                onAddCoachNote={setCoachNotePlayer}
+                onEditPlayer={access.can("players", "edit") ? setPlayerToEdit : undefined}
+                onDeletePlayer={access.can("players", "delete") ? handleDeletePlayer : undefined}
+                onAssignClass={access.can("players", "assign") ? handleAssignPlayer : undefined}
+                onGenerateInvoice={access.can("invoices", "create") ? handleGenerateInvoice : undefined}
+                onAddCoachNote={access.can("notes", "create") ? setCoachNotePlayer : undefined}
                 showPaymentStatus={true}
+                canEditPaymentStatus={access.can("payments", "edit")}
+                canChat={access.can("communication", "create")}
                 selectedTerm={termFilter}
                 page={page}
                 limit={limit}
@@ -252,7 +257,7 @@ export default function PlayersManagement() {
           <PlayerDetailCard 
             player={selectedPlayer} 
             onClose={() => setSelectedPlayer(null)} 
-            onEditPlayer={setPlayerToEdit}
+            onEditPlayer={access.can("players", "edit") ? setPlayerToEdit : undefined}
           />
         )}
       </div>

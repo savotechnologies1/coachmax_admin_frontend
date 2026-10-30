@@ -26,10 +26,12 @@ import { useProgramsByCategory } from "../../hooks/usePrograms";
 import { useTerms } from "../../hooks/useTerms";
 import { findCurrentTerm } from "../../hooks/useCurrentTerm";
 import apiClient from "../../api/apiClient";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const EMPTY_TIME_SLOTS: never[] = [];
 
 export default function Programs2() {
+  const access = useCoachAccess();
   const navigate = useNavigate();
   const location = useLocation();
   const state = location.state as any;
@@ -199,6 +201,16 @@ export default function Programs2() {
 
   // Default expand closest or first slot
   const hasInitializedFromState = useRef(false);
+  // Global search can select another class while this screen is already open.
+  useEffect(() => {
+    if (!state?.classId) return;
+    setActiveDay("View All");
+    if (state.categoryId) setSelectedCategory(String(state.categoryId));
+    if (state.programId) setSelectedProgram(String(state.programId));
+    if (state.year) setSelectedYear(String(state.year));
+    if (state.termId) setSelectedTerm(String(state.termId));
+    hasInitializedFromState.current = false;
+  }, [state?.classId, location.key]);
   useEffect(() => {
     if (timeSlots && timeSlots.length > 0) {
       if (state?.classId && !hasInitializedFromState.current) {
@@ -547,22 +559,22 @@ export default function Programs2() {
         </div>
 
         {/* Add Class Button */}
-        <button
+        {access.can("classes", "create") && <button
           onClick={() => setIsClassModalOpen(true)}
           className="inline-flex items-center justify-center gap-1 rounded-none bg-[#0047FF] px-5 py-2.5 h-[42px] text-center text-xs font-black uppercase tracking-wider text-white hover:bg-blue-700 transition-colors shadow-theme-xs w-full sm:w-auto shrink-0 cursor-pointer"
         >
           <Plus size={14} />
           <span>Add Class</span>
-        </button>
+        </button>}
 
         {/* Term Settings Button */}
-        <button
+        {(access.can("terms", "create") || access.can("terms", "edit") || access.can("terms", "delete")) && <button
           onClick={() => setIsTermModalOpen(true)}
           className="inline-flex items-center justify-center gap-1.5 rounded-none border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 px-4 py-2.5 h-[42px] text-xs font-bold uppercase tracking-wider hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-theme-xs w-full sm:w-auto shrink-0 cursor-pointer"
         >
           <Settings size={14} className="text-slate-500" />
           <span>Term Settings</span>
-        </button>
+        </button>}
       </PageBreadcrumb>
 
       {/* Category Tabs (Classes Management underline style) */}
@@ -662,9 +674,9 @@ export default function Programs2() {
                         [occurrenceKey(slot)]: !prev[occurrenceKey(slot)],
                       }))
                     }
-                    onEditClass={handleEditClass}
-                    onDuplicateClass={handleDuplicateClass}
-                    onDeleteClass={(classId) => setDeleteClassId(classId)}
+                    onEditClass={access.can("classes", "edit") ? handleEditClass : undefined}
+                    onDuplicateClass={access.can("classes", "create") ? handleDuplicateClass : undefined}
+                    onDeleteClass={access.can("classes", "delete") ? (classId) => setDeleteClassId(classId) : undefined}
                   />
                   </div>
                 );
@@ -679,8 +691,8 @@ export default function Programs2() {
 
         {/* Right Side: Sidebar Cards Panel */}
         {(() => {
-          if (!showSidebar) return null;
-          const showFilter = showAllocated || showUnallocated;
+          if (!showSidebar || (!access.can("players", "read") && !access.can("requests", "read"))) return null;
+          const showFilter = (showAllocated && access.can("players", "read")) || (showUnallocated && access.can("requests", "read"));
           if (!showFilter) return null;
 
           return (
@@ -694,27 +706,27 @@ export default function Programs2() {
                 onSearchChange={setSidebarSearch}
               />
 
-              {showUnallocated && (
+              {showUnallocated && access.can("requests", "read") && (
                 <UnallocatedPlayersCard
                   players={unallocatedData?.players || []}
                   totalCount={unallocatedData?.pagination?.total || 0}
                   page={unallocatedPage}
                   onPageChange={setUnallocatedPage}
                   isLoading={isUnallocatedFetching}
-                  onAssignPlayer={(player) => setPendingAssignPlayer(player)}
+                  onAssignPlayer={access.can("requests", "assign") && access.can("players", "assign") ? (player) => setPendingAssignPlayer(player) : undefined}
                   onNavigateToTarget={handleNavigateToRequestedTarget}
                   onViewAll={() => setIsUnallocatedModalOpen(true)}
                 />
               )}
 
-              {showAllocated && (
+              {showAllocated && access.can("players", "read") && (
                 <AllocatedPlayersCard
                   players={allocatedData?.players || []}
                   totalCount={allocatedData?.pagination?.total || 0}
                   page={allocatedPage}
                   onPageChange={setAllocatedPage}
                   isLoading={isAllocatedFetching}
-                  onAssignPlayer={(player) => setPendingAssignPlayer(player)}
+                  onAssignPlayer={access.can("players", "assign") ? (player) => setPendingAssignPlayer(player) : undefined}
                   onViewAll={() => setIsAllocatedModalOpen(true)}
                 />
               )}
@@ -767,10 +779,10 @@ export default function Programs2() {
         onClose={() => setIsUnallocatedModalOpen(false)}
         title="Unallocated Players"
         players={allUnallocatedData?.players || []}
-        onAssignPlayer={(player) => {
+        onAssignPlayer={access.can("requests", "assign") && access.can("players", "assign") ? (player) => {
           setPendingAssignPlayer(player);
           setIsUnallocatedModalOpen(false);
-        }}
+        } : undefined}
         onNavigateToTarget={(player) => {
           setIsUnallocatedModalOpen(false);
           handleNavigateToRequestedTarget(player);
@@ -782,10 +794,10 @@ export default function Programs2() {
         onClose={() => setIsAllocatedModalOpen(false)}
         title="Allocated Players"
         players={allAllocatedData?.players || []}
-        onAssignPlayer={(player) => {
+        onAssignPlayer={access.can("players", "assign") ? (player) => {
           setPendingAssignPlayer(player);
           setIsAllocatedModalOpen(false);
-        }}
+        } : undefined}
       />
 
       {/* Direct Assign Class Modal */}

@@ -6,8 +6,10 @@ import PageBreadcrumb from "../../components/common/PageBreadcrumb";
 import { useOrderDetails, useUpdateOrderStatus } from "../../hooks/useOrders";
 import { useSidebarBadges } from "../../hooks/useSidebarBadges";
 import { getMediaUrl } from "../../utils/media";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 export default function OrderDetails() {
+  const { can } = useCoachAccess();
   const { id } = useParams<{ id: string }>();
   const { data, isLoading, isError } = useOrderDetails(id as string);
   const updateStatusMutation = useUpdateOrderStatus();
@@ -54,7 +56,7 @@ export default function OrderDetails() {
                 <select
                   value={order.status || "PENDING"}
                   onChange={(e) => handleStatusChange(e.target.value)}
-                  disabled={updateStatusMutation.isPending}
+                  disabled={updateStatusMutation.isPending || !can("orders", "edit")}
                   className={`rounded-none border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold outline-none disabled:opacity-50 ${
                     order.status === "DELIVERED" ? "text-emerald-600 border-emerald-200 bg-emerald-50" : 
                     order.status === "CANCELLED" ? "text-rose-600 border-rose-200 bg-rose-50" : 
@@ -73,7 +75,7 @@ export default function OrderDetails() {
                 <select
                   value={order.paymentStatus || "PENDING"}
                   onChange={(e) => handlePaymentStatusChange(e.target.value)}
-                  disabled={updateStatusMutation.isPending}
+                  disabled={updateStatusMutation.isPending || !can("orders", "edit")}
                   className={`rounded-none border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold outline-none disabled:opacity-50 ${
                     order.paymentStatus === "PAID" ? "text-emerald-600 border-emerald-200 bg-emerald-50" : 
                     order.paymentStatus === "FAILED" ? "text-rose-600 border-rose-200 bg-rose-50" : 

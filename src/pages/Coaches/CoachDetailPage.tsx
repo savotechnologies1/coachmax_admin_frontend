@@ -9,6 +9,9 @@ import {
 import PageMeta from "../../components/common/PageMeta";
 import { getCoachDetail } from "../../api/adminApi";
 import { getMediaUrl, getMediaFallback } from "../../utils/media";
+import CoachAccessPanel from "../../components/management/CoachAccessPanel";
+import StaffSessionsPanel from "../../components/UserProfile/StaffSessionsPanel";
+import { getLocalRole } from "../../hooks/useCoachAccess";
 
 const dateLabel = (value?: string | null, timestamp = false) => (timestamp ? formatTimestampDate(value, APP_TIME_ZONE) : formatDateOnly(value)) || "Date not set";
 
@@ -47,9 +50,9 @@ export default function CoachDetailPage() {
     [activity, selectedClass],
   );
 
-  if (isLoading) return <div className="mx-auto max-w-7xl p-6"><div className="h-48 animate-pulse rounded-xl bg-gray-100" /></div>;
+  if (isLoading) return <div className="w-full min-w-0 p-6"><div className="h-48 animate-pulse rounded-xl bg-gray-100" /></div>;
   if (isError || !coach) return (
-    <div className="mx-auto max-w-7xl p-6">
+    <div className="w-full min-w-0 p-6">
       <button onClick={() => navigate("/coaches")} className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-blue-700"><ArrowLeft size={16} /> Coaches</button>
       <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">{(error as Error)?.message || "Coach details could not be loaded."}</div>
     </div>
@@ -65,7 +68,7 @@ export default function CoachDetailPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
+    <div className="w-full min-w-0 space-y-6 p-4 md:p-6">
       <PageMeta title={`CoachMax | ${coachName}`} description={`${coachName} coaching profile, classes, and attendance`} />
       <button onClick={() => navigate("/coaches")} className="inline-flex items-center gap-2 text-sm font-semibold text-gray-500 transition hover:text-blue-700"><ArrowLeft size={16} /> Back to coaches</button>
 
@@ -98,6 +101,9 @@ export default function CoachDetailPage() {
           ))}
         </div>
       </section>
+
+      {["SUPER_ADMIN", "ADMIN"].includes(getLocalRole()) && <CoachAccessPanel coachId={coachId} />}
+      {["SUPER_ADMIN", "ADMIN"].includes(getLocalRole()) && <StaffSessionsPanel coachId={coachId} />}
 
       <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-gray-100 px-5 pt-4 sm:flex-row sm:items-center sm:justify-between">

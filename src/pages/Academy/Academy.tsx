@@ -20,6 +20,7 @@ import { Modal } from "../../components/ui/modal";
 import ConfirmDeleteModal from "../../components/ui/modal/ConfirmDeleteModal";
 import { useSidebarBadges } from "../../hooks/useSidebarBadges";
 import apiClient from "../../api/apiClient";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 interface AcademyProps {
   programType?: string;
@@ -27,6 +28,7 @@ interface AcademyProps {
 const EMPTY_TIME_SLOTS: never[] = [];
 
 export default function Academy({ programType = "Academy" }: AcademyProps) {
+  const access = useCoachAccess();
   const navigate = useNavigate();
   const location = useLocation();
   const state = location.state as any;
@@ -432,9 +434,9 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
                         [occurrenceKey(slot)]: !prev[occurrenceKey(slot)],
                       }))
                     }
-                    onEditClass={handleEditClass}
-                    onDuplicateClass={handleDuplicateClass}
-                    onDeleteClass={(classId) => setDeleteClassId(classId)}
+                    onEditClass={access.can("classes", "edit") ? handleEditClass : undefined}
+                    onDuplicateClass={access.can("classes", "create") ? handleDuplicateClass : undefined}
+                    onDeleteClass={access.can("classes", "delete") ? (classId) => setDeleteClassId(classId) : undefined}
                   />
                   </div>
                 );
@@ -449,22 +451,7 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
 
         {/* Right Side: Sidebar Cards Panel */}
         {(() => {
-          if (!showSidebar) return null;
-
-          const userStr = localStorage.getItem("user");
-          let isCoach = false;
-          if (userStr) {
-            try {
-              const parsed = JSON.parse(userStr);
-              if (parsed?.role === "COACH") {
-                isCoach = true;
-              }
-            } catch (e) {
-              console.error(e);
-            }
-          }
-
-          if (isCoach) return null;
+          if (!showSidebar || (!access.can("players", "read") && !access.can("requests", "read"))) return null;
 
           return (
             <div className="w-full xl:w-[350px] shrink-0 xl:sticky xl:top-[88px] xl:max-h-[calc(100vh-110px)] xl:overflow-y-auto pr-1.5 custom-scrollbar flex flex-col gap-4">
@@ -476,26 +463,26 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
                 onProgramChange={setSidebarProgram}
                 onSearchChange={setSidebarSearch}
               />
-              {(effectivePlayerType === "BOTH" || effectivePlayerType === "UNALLOCATED") && (
+              {access.can("requests", "read") && (effectivePlayerType === "BOTH" || effectivePlayerType === "UNALLOCATED") && (
                 <UnallocatedPlayersCard
                   players={unallocatedData?.players || []}
                   totalCount={unallocatedData?.pagination?.total || 0}
                   page={unallocatedPage}
                   onPageChange={setUnallocatedPage}
                   isLoading={isUnallocatedFetching}
-                  onAssignPlayer={(player) => setPendingAssignPlayer(player)}
+                  onAssignPlayer={access.can("requests", "assign") && access.can("players", "assign") ? (player) => setPendingAssignPlayer(player) : undefined}
                   onNavigateToTarget={handleNavigateToRequestedTarget}
                   onViewAll={() => setIsUnallocatedModalOpen(true)}
                 />
               )}
-              {(effectivePlayerType === "BOTH" || effectivePlayerType === "ALLOCATED") && (
+              {access.can("players", "read") && (effectivePlayerType === "BOTH" || effectivePlayerType === "ALLOCATED") && (
                 <AllocatedPlayersCard
                   players={allocatedData?.players || []}
                   totalCount={allocatedData?.pagination?.total || 0}
                   page={allocatedPage}
                   onPageChange={setAllocatedPage}
                   isLoading={isAllocatedFetching}
-                  onAssignPlayer={(player) => setPendingAssignPlayer(player)}
+                  onAssignPlayer={access.can("players", "assign") ? (player) => setPendingAssignPlayer(player) : undefined}
                   onViewAll={() => setIsAllocatedModalOpen(true)}
                 />
               )}
@@ -668,10 +655,10 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
         onClose={() => setIsUnallocatedModalOpen(false)}
         title="Unallocated Players"
         players={allUnallocatedData?.players || []}
-        onAssignPlayer={(player) => {
+        onAssignPlayer={access.can("requests", "assign") && access.can("players", "assign") ? (player) => {
           setPendingAssignPlayer(player);
           setIsUnallocatedModalOpen(false);
-        }}
+        } : undefined}
         onNavigateToTarget={(player) => {
           setIsUnallocatedModalOpen(false);
           handleNavigateToRequestedTarget(player);
@@ -683,10 +670,10 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
         onClose={() => setIsAllocatedModalOpen(false)}
         title="Allocated Players"
         players={allAllocatedData?.players || []}
-        onAssignPlayer={(player) => {
+        onAssignPlayer={access.can("players", "assign") ? (player) => {
           setPendingAssignPlayer(player);
           setIsAllocatedModalOpen(false);
-        }}
+        } : undefined}
       />
     </>
   );

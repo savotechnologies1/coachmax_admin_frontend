@@ -23,6 +23,7 @@ import { getMediaUrl, getMediaFallback } from "../../utils/media";
 import { sortPlayersByPaymentStatus } from "../../utils/paymentStatus";
 import { chatApi } from "../../services/chatApi";
 import ChatActionButton from "../chat/ChatActionButton";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 interface TeamFullTableProps {
   teamId: string;
@@ -43,6 +44,7 @@ export default function TeamFullTable({
   className,
   hideHeader = false,
 }: TeamFullTableProps) {
+  const { can } = useCoachAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -451,7 +453,7 @@ export default function TeamFullTable({
                           </div>
 
                           {/* Hover button: Mark All Present */}
-                          <button
+                          {can("attendance", "edit") && <button
                             onClick={() => handleMarkAllPresent(sessionDate)}
                             className="absolute inset-0 bg-white/95 dark:bg-slate-900/95 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[#0047FF] font-bold text-[10px]"
                             title="Mark all present"
@@ -469,7 +471,7 @@ export default function TeamFullTable({
                                 d="M5 13l4 4L19 7"
                               />
                             </svg>
-                          </button>
+                          </button>}
                         </th>
                       );
                     })}
@@ -495,7 +497,7 @@ export default function TeamFullTable({
                             setOpenMenuId(openMenuId === pId ? null : pId);
                           }}
                           className="sticky left-[35px] z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 py-2 px-2 text-center min-w-[40px] w-[40px] max-w-[40px] border-b border-slate-50 dark:border-slate-800/40 cursor-pointer"
-                          title={["TRIAL", "TBC", "EXTRA", "OTHERS", "SUBSTITUTE"].includes(((row.paymentStatus || row.status) || "").toUpperCase()) ? ((row.paymentStatus || row.status) || "").toUpperCase() : "Click to update status"}
+                          title={can("payments", "edit") ? "Open player actions and payment status" : "Open player actions"}
                         >
                           <StatusIcon status={row.paymentStatus || row.status} />
                         </td>
@@ -569,7 +571,7 @@ export default function TeamFullTable({
                           return (
                             <td
                               key={sessionDate}
-                              onClick={(e) =>
+                              onClick={can("attendance", "edit") ? (e) =>
                                 handleToggleAttendance(
                                   row.playerId,
                                   sessionDate,
@@ -579,8 +581,8 @@ export default function TeamFullTable({
                                   markedByParent,
                                   row.playerName || row.name
                                 )
-                              }
-                              className="relative py-2 px-1.5 text-center border-l border-slate-50 dark:border-slate-800/40 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group/cell"
+                              : undefined}
+                              className={`relative py-2 px-1.5 text-center border-l border-slate-50 dark:border-slate-800/40 transition-colors group/cell ${can("attendance", "edit") ? "cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" : ""}`}
                             >
                               <AttendanceCellFlag reason={reason} markedByParent={markedByParent} status={currentStatus} />
                               {renderStatusIcon(currentStatus)}
@@ -628,14 +630,14 @@ export default function TeamFullTable({
                                 }}
                                 className="z-[9999] w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xl py-1 text-left"
                               >
-                                <StatusUpdateMenuList
+                                {can("payments", "edit") && <StatusUpdateMenuList
                                   currentStatus={row.paymentStatus || row.status}
                                   isTeam={true}
                                   onSelectStatus={(newStatus) => {
                                     setOpenMenuId(null);
                                     handleUpdateStatus(row.playerId || row._id, newStatus);
                                   }}
-                                />
+                                />}
                                 <div className="border-t border-slate-100 dark:border-slate-700 my-1" />
 
                                 <button
@@ -661,14 +663,14 @@ export default function TeamFullTable({
                                   View Player Profile
                                 </button>
 
-                                <ChatActionButton
+                                {can("communication", "create") && can("parents", "read") && <ChatActionButton
                                   contextLabel={row.playerName || row.name || "Parent"}
                                   ensureRoom={() => openPlayerParentChat(row)}
                                   buttonText="Chat with Parent"
                                   className="w-full px-4 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                                />
+                                />}
 
-                                <button
+                                {can("notes", "create") && <button
                                   onClick={() => {
                                     setOpenMenuId(null);
                                     setCoachNotePlayer({
@@ -696,9 +698,9 @@ export default function TeamFullTable({
                                     />
                                   </svg>
                                   Add Coach Note
-                                </button>
+                                </button>}
 
-                                <button
+                                {can("teams", "edit") && <button
                                   onClick={() => {
                                     setOpenMenuId(null);
                                     setStatsPlayer(row);
@@ -707,9 +709,9 @@ export default function TeamFullTable({
                                 >
                                   <Activity className="w-3.5 h-3.5 text-indigo-500" />
                                   Edit Team Statistics
-                                </button>
+                                </button>}
 
-                                <button
+                                {can("invoices", "create") && <button
                                   onClick={() => {
                                     setOpenMenuId(null);
                                     setInvoicePlayer(row);
@@ -730,9 +732,9 @@ export default function TeamFullTable({
                                     />
                                   </svg>
                                   Generate Invoice
-                                </button>
+                                </button>}
 
-                                <button
+                                {can("teams", "assign") && <button
                                   onClick={() => {
                                     setOpenMenuId(null);
                                     setUnassignPlayer(row);
@@ -753,7 +755,7 @@ export default function TeamFullTable({
                                     />
                                   </svg>
                                   Unassign Player
-                                </button>
+                                </button>}
                               </div>,
                               document.body
                             )}
@@ -835,7 +837,7 @@ export default function TeamFullTable({
       )}
 
       {/* Attendance Dropdown Portal with Reason & Flags */}
-      {openAttendanceMenu && attendanceMenuPos && (
+      {can("attendance", "edit") && openAttendanceMenu && attendanceMenuPos && (
         <AttendanceStatusDropdown
           isOpen={Boolean(openAttendanceMenu)}
           position={attendanceMenuPos}

@@ -245,6 +245,13 @@ form :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not
   padding-right: 2.25rem;
 }
 
+/* Keep password text clear of the lock and visibility icons in coach forms. */
+#coach-edit-password-form input.pl-10,
+#coach-create-form input.pl-10 {
+  padding-left: 2.5rem;
+  padding-right: 2.5rem;
+}
+
 .coachmax-select-trigger {
   display: flex;
   align-items: center;

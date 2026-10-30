@@ -11,6 +11,7 @@ import { rejectAndDeleteVerificationRequest } from "../../api/verificationApi";
 import { useSidebarBadges } from "../../hooks/useSidebarBadges";
 import { useTerms } from "../../hooks/useTerms";
 import { Users, GraduationCap, School, Sun, CalendarDays, Layers } from "lucide-react";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const REQUEST_METRICS = [
   { key: "ALL", label: "All requests", icon: Users, color: "text-blue-600 bg-blue-50" },
@@ -29,6 +30,7 @@ const REQUEST_SOURCES = [
 ] as const;
 
 export default function RegistrationRequests() {
+  const access = useCoachAccess();
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -94,7 +96,7 @@ export default function RegistrationRequests() {
     <p className="text-sm text-slate-500 mb-3">{totalRequests} requests · U groups use {term ? "the selected term year" : "the current year"}.</p>
     <div className="flex flex-col xl:flex-row gap-3 items-start">
       <div className="flex-1 w-full min-w-0">
-        {isLoading ? <p className="p-8 text-center">Loading requests…</p> : isError ? <div role="alert" className="p-6 border text-red-600">{error.message}<button onClick={() => refetch()} className="ml-3 underline">Retry</button></div> : !players.length ? <p className="p-8 border text-center text-slate-500">No requests match these filters.</p> : <PlayerTable players={players} selectedPlayerId={selectedPlayer?.requestId || ""} onSelectPlayer={selectPlayer} onAssignClass={(player) => { selectPlayer(player); setPlayerToAssign(player); }} onOpenRequestedClass={(player) => setPlayerToAssign(player)} onRejectAndDeleteRequest={(player) => { setRejectionReason(""); setPlayerToRejectAndDelete(player); }} onRequestSourceClick={(value) => { setSubmittedBy(value); setPage(1); }} showStatusColumn showRequestDetails showAddedBy showPaymentStatus={false} page={page} limit={limit} preserveOrder />}
+        {isLoading ? <p className="p-8 text-center">Loading requests…</p> : isError ? <div role="alert" className="p-6 border text-red-600">{error.message}<button onClick={() => refetch()} className="ml-3 underline">Retry</button></div> : !players.length ? <p className="p-8 border text-center text-slate-500">No requests match these filters.</p> : <PlayerTable players={players} selectedPlayerId={selectedPlayer?.requestId || ""} onSelectPlayer={selectPlayer} onAssignClass={access.can("requests", "assign") && access.can("players", "assign") ? (player) => { selectPlayer(player); setPlayerToAssign(player); } : undefined} onOpenRequestedClass={access.can("requests", "assign") && access.can("players", "assign") ? (player) => setPlayerToAssign(player) : undefined} onRejectAndDeleteRequest={access.can("requests", "approve") ? (player) => { setRejectionReason(""); setPlayerToRejectAndDelete(player); } : undefined} onRequestSourceClick={(value) => { setSubmittedBy(value); setPage(1); }} showStatusColumn showRequestDetails showAddedBy showPaymentStatus={false} canChat={access.can("communication", "create")} page={page} limit={limit} preserveOrder />}
         <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-3 text-sm dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-3 text-slate-500">
             <span>Showing {firstRequest}–{lastRequest} of {totalRequests}</span>
@@ -115,7 +117,7 @@ export default function RegistrationRequests() {
           </nav>
         </div>
       </div>
-      {selectedPlayer && <PlayerDetailCard player={selectedPlayer} onClose={() => setSelectedPlayer(null)} onAssignClass={(player) => { setSelectedPlayer(null); setPlayerToAssign(player); }} isRegistrationRequest />}
+      {selectedPlayer && <PlayerDetailCard player={selectedPlayer} onClose={() => setSelectedPlayer(null)} onAssignClass={access.can("requests", "assign") && access.can("players", "assign") ? (player) => { setSelectedPlayer(null); setPlayerToAssign(player); } : undefined} isRegistrationRequest />}
     </div>
     {playerToAssign && <AssignClassModal player={playerToAssign} onClose={() => setPlayerToAssign(null)} />}
     {playerToRejectAndDelete && <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true" aria-labelledby="reject-delete-title"><div className="w-full max-w-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900"><h2 id="reject-delete-title" className="font-bold text-slate-900 dark:text-white">Reject and delete {playerToRejectAndDelete.fullName}’s request?</h2><p className="my-3 text-sm text-slate-600 dark:text-slate-300">This permanently deletes this verification request after rejecting it. The linked player profile, other requests, enrollments, and history will remain.</p><label htmlFor="rejection-reason" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Rejection reason <span className="text-rose-600">*</span></label><textarea id="rejection-reason" aria-label="Rejection reason" placeholder="Enter the reason for rejection" value={rejectionReason} maxLength={2000} onChange={(event) => setRejectionReason(event.target.value)} className="min-h-24 w-full resize-y border border-slate-300 p-2 text-sm dark:border-slate-700 dark:bg-slate-800" /><p className="mt-1 text-xs text-slate-500">Required, up to 2,000 characters.</p><div className="mt-4 flex justify-end gap-3"><button type="button" onClick={() => { setPlayerToRejectAndDelete(null); setRejectionReason(""); }} disabled={rejectAndDelete.isPending} className="border px-4 py-2">Cancel</button><button type="button" onClick={() => rejectAndDelete.mutate()} disabled={!rejectionReason.trim() || rejectAndDelete.isPending} className="bg-rose-600 px-4 py-2 text-white disabled:opacity-50">{rejectAndDelete.isPending ? "Rejecting…" : "Reject and Delete"}</button></div></div></div>}

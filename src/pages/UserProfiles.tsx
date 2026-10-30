@@ -3,6 +3,8 @@ import UserMetaCard from "../components/UserProfile/UserMetaCard";
 import UserInfoCard from "../components/UserProfile/UserInfoCard";
 import ChangePasswordCard from "../components/UserProfile/ChangePasswordCard";
 import PageMeta from "../components/common/PageMeta";
+import StaffSessionsPanel from "../components/UserProfile/StaffSessionsPanel";
+import { getLocalRole } from "../hooks/useCoachAccess";
 
 export default function UserProfiles() {
   return (
@@ -20,6 +22,7 @@ export default function UserProfiles() {
           <UserMetaCard />
           <UserInfoCard />
           <ChangePasswordCard />
+          {["SUPER_ADMIN", "ADMIN", "COACH"].includes(getLocalRole()) && <StaffSessionsPanel />}
         </div>
       </div>
     </>

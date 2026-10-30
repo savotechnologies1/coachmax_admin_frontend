@@ -48,6 +48,13 @@ export const getErrorMessage = (error: any, fallback = "Something went wrong"): 
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    // A wrong password returns 401 from the login endpoint. Let the sign-in
+    // form display that error without treating it as an expired session.
+    const isSignInRequest = /^\/?api\/admin\/login(?:\?|$)/.test(error.config?.url || "");
+    if (isSignInRequest && error.response?.status === 401) {
+      return Promise.reject(error);
+    }
+
     if (!error.response || error.message === "Network Error") {
       toast.error("Network error. Please check your connection.");
       (error as any)._handled = true;

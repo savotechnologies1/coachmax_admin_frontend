@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import ComponentCard from "../common/ComponentCard";
 import { getPaymentSettings, updatePaymentSettings } from "../../api/paymentApi";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 interface SwitchProps {
   label: string;
@@ -56,6 +57,7 @@ const CustomSwitch: React.FC<SwitchProps> = ({
 };
 
 export default function PaymentSettings() {
+  const { can } = useCoachAccess();
   const [isOnlineEnabled, setIsOnlineEnabled] = useState(false);
   const [isCodEnabled, setIsCodEnabled] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -164,14 +166,14 @@ export default function PaymentSettings() {
           label="Online Payment"
           checked={isOnlineEnabled}
           loading={updatingOnline}
-          disabled={isAnyUpdating}
+          disabled={isAnyUpdating || !can("bankDetails", "edit")}
           onChange={handleToggleOnline}
         />
         <CustomSwitch
           label="Cash on Delivery (COD)"
           checked={isCodEnabled}
           loading={updatingCod}
-          disabled={isAnyUpdating}
+          disabled={isAnyUpdating || !can("bankDetails", "edit")}
           onChange={handleToggleCod}
         />
       </div>

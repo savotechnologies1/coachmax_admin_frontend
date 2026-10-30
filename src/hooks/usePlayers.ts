@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { deletePlayer, getPlayers, exportUsersCSV, getPlayerProfile, getAdminPlayerDetails, updatePlayerStatistics, updatePlayer, getPlayerStats, updatePlayerPaymentStatus, UpdatePaymentStatusPayload } from "../api/players";
 import { getAllClassesForAssign, assignClass, transferClass, getClassFiltersWithTimeSlots, getClassFullTable, markSingleAttendance, markBulkAttendance, getClassPlayers, assignClassesToPlayer, removeClassFromPlayer, getTeamFullTable, markSingleTeamAttendance, markTeamAttendance, updateTeamPlayerStatistics } from "../api/adminApi";
-import { markCoachSingleAttendance, markCoachBulkAttendance, getCoachClassPlayers, getCoachPlayerProfile, getCoachUniquePlayers, addCoachNote, getCoachNotes, updateCoachNote, getCoachAllNotes } from "../api/coaches";
+import { markCoachSingleAttendance, markCoachBulkAttendance, getCoachClassPlayers, getCoachPlayerProfile, addCoachNote, getCoachNotes, updateCoachNote, getCoachAllNotes } from "../api/coaches";
 import { PlayersResponse } from "../types/player";
 
 export const usePlayerStats = (term?: string, year?: string) => {
@@ -29,22 +29,6 @@ export const usePlayers = (
   return useQuery<PlayersResponse, Error>({
     queryKey: ["players", page, limit, search, program, status, term, medical, ageGroup, subProgram, playerStatus, assignment, year],
     queryFn: () => {
-      const userStr = localStorage.getItem("user");
-      let isCoach = false;
-      if (userStr) {
-        try {
-          const parsed = JSON.parse(userStr);
-          if (parsed?.role === "COACH") {
-            isCoach = true;
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }
-
-      if (isCoach) {
-        return getCoachUniquePlayers(page, limit, search, program, status);
-      }
       return getPlayers(page, limit, search, program, status, term, medical, ageGroup, subProgram, playerStatus, assignment, year);
     },
   });

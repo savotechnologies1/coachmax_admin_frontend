@@ -15,6 +15,7 @@ import FormHeader from "../form/FormHeader";
 import { requiredText, validateWithSchema } from "../../utils/formValidation";
 import { z } from "zod";
 import Pagination from "../common/Pagination";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const coachContactSchema = z.object({
   fullName: requiredText("Full name"),
@@ -42,6 +43,7 @@ const coachUpdatePasswordSchema = z.object({
 });
 
 const CoachManagement: React.FC = () => {
+  const { can } = useCoachAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const profileImageInputRef = useRef<HTMLInputElement>(null);
@@ -301,7 +303,7 @@ const CoachManagement: React.FC = () => {
           <h3 className="text-lg font-bold text-gray-800 dark:text-white/90">Coaching Staff</h3>
           <p className="text-xs text-gray-500 font-medium">Manage certified academy coaches</p>
         </div>
-        <Button onClick={handleOpenAdd} size="sm">Add Coach</Button>
+        {can("coaches", "create") && <Button onClick={handleOpenAdd} size="sm">Add Coach</Button>}
       </div>
 
       <div className="max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
@@ -366,7 +368,7 @@ const CoachManagement: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleToggleAccess(coach)}
-                        disabled={toggleMutation.isPending}
+                        disabled={toggleMutation.isPending || !can("coaches", "edit")}
                         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50 ${
                           coach.isActive !== false ? "bg-green-500" : "bg-gray-200 dark:bg-gray-700"
                         }`}
@@ -385,7 +387,7 @@ const CoachManagement: React.FC = () => {
                   <TableCell>
                     <div className="flex items-center justify-center gap-3">
                       <button onClick={() => navigate(`/coaches/${coach._id}`)} title="View coach details" aria-label={`View ${coach.fullName || coach.name || "coach"} details`} className="p-1.5 text-gray-400 hover:text-brand-500 transition-colors"><Eye size={14} /></button>
-                      <button onClick={() => handleOpenEdit(coach)} title="Modify" className="p-1.5 text-gray-400 hover:text-brand-500 transition-colors"><Pencil size={14} /></button>
+                      {can("coaches", "edit") && <button onClick={() => handleOpenEdit(coach)} title="Modify" className="p-1.5 text-gray-400 hover:text-brand-500 transition-colors"><Pencil size={14} /></button>}
                       {/* <button onClick={() => handleDeleteClick(coach._id)} title="Remove" className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={14} /></button> */}
                     </div>
                   </TableCell>
@@ -487,7 +489,7 @@ const CoachManagement: React.FC = () => {
               <div className="bg-white rounded-none border border-gray-200 p-6 shadow-sm flex flex-col h-full">
                 <h5 className="font-bold text-gray-800 mb-1">Security & Password</h5>
                 <p className="text-xs text-gray-500 mb-6">Update coach login credentials securely.</p>
-                <form data-coachmax-form noValidate onSubmit={handleUpdatePasswordSubmit}>
+                <form id="coach-edit-password-form" data-coachmax-form noValidate onSubmit={handleUpdatePasswordSubmit}>
                   <div className="space-y-4">
                     <div>
                       <div className="flex justify-between items-center mb-2">
@@ -561,7 +563,7 @@ const CoachManagement: React.FC = () => {
         ) : (
           <>
             <FormHeader icon={ShieldCheckIcon} title="New Staff Registration" description="Coordinate the administrative credentials for academy staff." className="-mx-6 -mt-6 mb-6 rounded-t-lg border-b border-[#082269] lg:-mx-8 lg:-mt-8" />
-            <form data-coachmax-form noValidate onSubmit={handleCreateSubmit}>
+            <form id="coach-create-form" data-coachmax-form noValidate onSubmit={handleCreateSubmit}>
               <div className="space-y-4">
                 <div>
                   <label htmlFor="coach-full-name" className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2 ml-1">Full Name *</label>

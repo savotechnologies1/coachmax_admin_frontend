@@ -68,8 +68,9 @@ export default function AllocatedPlayersCard({
             <div
               key={p.id}
               className="flex gap-3 items-start justify-between cursor-move hover:border-blue-200 dark:hover:border-blue-900/50 hover:shadow-md transition-all p-2.5 rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/50"
-              draggable
+              draggable={Boolean(onAssignPlayer)}
               onDragStart={(e) => {
+                if (!onAssignPlayer) { e.preventDefault(); return; }
                 e.dataTransfer.setData("application/json", JSON.stringify({
                   playerId: p.id,
                   registrationRequestId: p.registrationRequestId,

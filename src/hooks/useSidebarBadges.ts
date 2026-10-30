@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSidebarBadges, SidebarBadges } from "../api/adminApi";
 import { socketService } from "../services/socketService";
+import { useCoachAccess } from "./useCoachAccess";
 
 const DEFAULT_BADGES: SidebarBadges = {
   verificationRequests: 0,
@@ -56,6 +57,7 @@ const updateGlobalReadItemsMap = (updater: (prev: Record<string, string[]>) => R
 };
 
 export const useSidebarBadges = () => {
+  const { isFull } = useCoachAccess();
   const queryClient = useQueryClient();
   const [readItemsMap, setReadItemsMap] = useState<Record<string, string[]>>(() => globalReadItemsMap);
 
@@ -80,6 +82,7 @@ export const useSidebarBadges = () => {
       console.error(e);
     }
   }
+  isAdmin = isAdmin || isFull;
 
   const query = useQuery<SidebarBadges>({
     queryKey: ["sidebar-badges"],

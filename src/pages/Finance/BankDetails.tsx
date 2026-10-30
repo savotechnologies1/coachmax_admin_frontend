@@ -11,6 +11,7 @@ import FormField from "../../components/form/FormField";
 import FormActions from "../../components/form/FormActions";
 import FormSection from "../../components/form/FormSection";
 import { validateWithSchema } from "../../utils/formValidation";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const bankDetailsSchema = z.object({
   accountName: z.string().trim().max(120, "Account name must be 120 characters or fewer."),
@@ -24,6 +25,8 @@ const bankDetailsSchema = z.object({
 
 
 export default function BankDetails() {
+  const { can } = useCoachAccess();
+  const canSave = can("bankDetails", "create") || can("bankDetails", "edit");
   const [formData, setFormData] = useState<BankDetailsData>({
     accountName: "",
     accountNumber: "",
@@ -137,6 +140,7 @@ export default function BankDetails() {
         <PaymentSettings />
         <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] lg:p-6">
           <form data-coachmax-form noValidate onSubmit={handleSubmit} className="space-y-4">
+            <fieldset disabled={!canSave} className="contents">
             <FormSection title="Bank account information" contentClassName="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField id="bank-account-name" label="Account Name" error={formErrors.accountName}>
                 <input id="bank-account-name" type="text" name="accountName" value={formData.accountName} onChange={handleChange} aria-invalid={Boolean(formErrors.accountName)} aria-describedby={formErrors.accountName ? "bank-account-name-error" : undefined} />
@@ -164,11 +168,12 @@ export default function BankDetails() {
                 {existingQrUrl && <img src={getMediaUrl(existingQrUrl)} alt="QR Code" className="mt-2 h-20 object-cover" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = getMediaUrl(); }} />}
               </FormField>
             </FormSection>
-            <FormActions className="-mx-5 -mb-5 mt-5 rounded-b-lg">
+            </fieldset>
+            {canSave && <FormActions className="-mx-5 -mb-5 mt-5 rounded-b-lg">
               <button type="submit" disabled={isSubmitting} className="rounded-none bg-brand-500 px-6 py-3 text-sm font-medium text-white hover:bg-brand-600 focus:outline-none disabled:opacity-50">
                 {isSubmitting ? "Saving..." : "Save Bank Details"}
               </button>
-            </FormActions>
+            </FormActions>}
           </form>
         </div>
       </div>

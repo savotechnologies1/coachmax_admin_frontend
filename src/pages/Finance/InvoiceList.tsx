@@ -6,6 +6,7 @@ import PageBreadcrumb from "../../components/common/PageBreadcrumb";
 import Pagination from "../../components/common/Pagination";
 import { useInvoices, useUpdateInvoice } from "../../hooks/useInvoices";
 import { useSidebarBadges } from "../../hooks/useSidebarBadges";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const formatDate = (value: string) => formatDateOnly(value) || "N/A";
 
@@ -16,6 +17,7 @@ const STATUS_STYLES: Record<string, { dot: string; text: string }> = {
 };
 
 export default function InvoiceList() {
+  const { can } = useCoachAccess();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("ALL");
@@ -147,7 +149,7 @@ export default function InvoiceList() {
                             <select
                               value={inv.paymentStatus || "UNPAID"}
                               onChange={(e) => handleStatusChange(e, inv._id)}
-                              disabled={isPending}
+                              disabled={isPending || !can("invoices", "edit")}
                               className={`text-xs font-bold border rounded-none px-2 py-1 outline-none cursor-pointer transition-all disabled:opacity-50
                                 ${st.text}
                                 border-slate-200 dark:border-slate-700

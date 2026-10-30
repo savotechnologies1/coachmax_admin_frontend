@@ -7,6 +7,7 @@ import AppSidebar from "./AppSidebar";
 import { useAppDispatch, useAppSelector } from "../store";
 import { syncAuth } from "../store/slices/authSlice";
 import { socketService } from "../services/socketService";
+import { requiredPageAccess, useCoachAccess } from "../hooks/useCoachAccess";
 
 const LayoutContent: React.FC = () => {
   const { isExpanded, isMobileOpen } = useSidebar();
@@ -14,6 +15,9 @@ const LayoutContent: React.FC = () => {
   const location = useLocation();
   const dispatch = useAppDispatch();
   const token = useAppSelector((state) => state.auth.token);
+  const coachAccess = useCoachAccess();
+  const pageAccess = requiredPageAccess(location.pathname);
+  const pageAllowed = coachAccess.role !== "COACH" || coachAccess.isFull || !pageAccess || coachAccess.can(pageAccess.module, pageAccess.action);
 
   const isEdgeToEdge = ["/communication", "/messages", "/announcements"].includes(location.pathname);
 
@@ -50,7 +54,14 @@ const LayoutContent: React.FC = () => {
       >
         <AppHeader />
         <div className={isEdgeToEdge ? "w-full h-[calc(100vh-76px)] overflow-hidden" : "p-4 w-full md:p-6"}>
-          <Outlet />
+          {coachAccess.role === "COACH" && coachAccess.isLoading ? (
+            <div className="p-8 text-sm text-slate-500">Loading your access…</div>
+          ) : pageAllowed ? <Outlet /> : (
+            <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+              <h1 className="text-lg font-bold">Access not enabled</h1>
+              <p className="mt-2">Ask an administrator to enable this section in Coach Manage.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

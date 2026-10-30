@@ -5,6 +5,7 @@ import { usePrograms, useCreateProgram, useUpdateProgram, useDeleteProgram } fro
 import { Program, CreateProgramRequest } from "../../types/program";
 import { Layers, X } from "lucide-react";
 import FormHeader from "../../components/form/FormHeader";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const CATEGORY_OPTIONS = ["Academy", "School", "Holiday Camp", "1on1 Session", "Other"];
 
@@ -21,6 +22,7 @@ interface ProgramFormValues {
 type ModalMode = "add" | "edit" | null;
 
 export default function ProgramsManagement() {
+  const access = useCoachAccess();
   const [page, setPage] = useState(1);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
@@ -122,7 +124,7 @@ export default function ProgramsManagement() {
             <span className="text-[#0047FF]">Programs</span>
           </div>
         </div>
-        <button
+        {access.can("programs", "create") && <button
           onClick={openAdd}
           className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0047FF] hover:bg-blue-700 text-white text-sm font-semibold rounded-none transition-colors shadow-sm"
         >
@@ -130,7 +132,7 @@ export default function ProgramsManagement() {
             <path d="M12 5V19M5 12H19" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           Add Program
-        </button>
+        </button>}
       </div>
 
       {/* Stats */}
@@ -205,7 +207,7 @@ export default function ProgramsManagement() {
                         <path d="M9 5H7C5.89543 5 5 5.89543 5 7V19C5 20.1046 5.89543 21 7 21H17C18.1046 21 19 20.1046 19 19V7C19 5.89543 18.1046 5 17 5H15M9 5C9 5.55228 9.44772 6 10 6H14C14.5523 6 15 5.55228 15 5M9 5C9 4.44772 9.44772 4 10 4H14C14.5523 4 15 4.44772 15 5M12 12H15M12 16H15M9 12H9.01M9 16H9.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                       </svg>
                       <p className="text-gray-400 dark:text-gray-500 font-medium">No programs found</p>
-                      <button onClick={openAdd} className="text-blue-600 text-sm hover:underline">Add your first program</button>
+                      {access.can("programs", "create") && <button onClick={openAdd} className="text-blue-600 text-sm hover:underline">Add your first program</button>}
                     </div>
                   </td>
                 </tr>
@@ -233,7 +235,7 @@ export default function ProgramsManagement() {
                     <td className="px-5 py-4 text-gray-500 dark:text-gray-400 max-w-xs truncate">{program.description || "—"}</td>
                     <td className="px-5 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        <button
+                        {access.can("programs", "edit") && <button
                           onClick={() => openEdit(program)}
                           className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-none transition-colors"
                           title="Edit"
@@ -242,8 +244,8 @@ export default function ProgramsManagement() {
                             <path d="M11 4H4C3.46957 4 2.96086 4.21071 2.58579 4.58579C2.21071 4.96086 2 5.46957 2 6V20C2 20.5304 2.21071 21.0391 2.58579 21.4142C2.96086 21.7893 3.46957 22 4 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                             <path d="M18.5 2.50001C18.8978 2.10219 19.4374 1.87869 20 1.87869C20.5626 1.87869 21.1022 2.10219 21.5 2.50001C21.8978 2.89784 22.1213 3.43741 22.1213 4.00001C22.1213 4.56261 21.8978 5.10219 21.5 5.50001L12 15L8 16L9 12L18.5 2.50001Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
-                        </button>
-                        <button
+                        </button>}
+                        {access.can("programs", "delete") && <button
                           onClick={() => setDeleteConfirmId(program._id)}
                           className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-none transition-colors"
                           title="Delete"
@@ -252,7 +254,7 @@ export default function ProgramsManagement() {
                             <path d="M3 6H5H21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                             <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6L18.1351 19.1425C18.058 20.1891 17.8737 21 16.8213 21H7.17872C6.12635 21 5.94203 20.1891 5.86495 19.1425L5 6H19Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>

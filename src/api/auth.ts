@@ -14,7 +14,7 @@ import {
 } from "../types/auth";
 
 export const login = async (credentials: SignInCredentials): Promise<AuthResponse> => {
-  const response = await apiClient.post<AuthResponse>("/api/admin/login", credentials);
+  const response = await apiClient.post<AuthResponse>("/api/admin/login", credentials, { headers: { "X-Client-Platform": "web" } });
   return response.data;
 };
 

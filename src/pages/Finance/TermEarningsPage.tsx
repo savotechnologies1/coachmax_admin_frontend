@@ -4,6 +4,7 @@ import PageMeta from "../../components/common/PageMeta";
 import PageBreadcrumb from "../../components/common/PageBreadcrumb";
 import { useCurrentTerm } from "../../hooks/useCurrentTerm";
 import { useTermEarnings } from "../../hooks/useTermEarnings";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 import { StatusIcon, getPlayerStatusTextClass } from "../../components/common/StatusColorCode";
 import {
   DollarSign,
@@ -138,6 +139,7 @@ const STREAM_CONFIG: Record<
 };
 
 export default function TermEarningsPage() {
+  const access = useCoachAccess();
   // Scope Mode: Single Term vs Two-Term Comparison vs All-Time Lifetime
   const [scopeMode, setScopeMode] = useState<"SINGLE" | "COMPARE" | "ALL_TIME">("SINGLE");
   const [selectedStream, setSelectedStream] = useState<string>("ALL");
@@ -408,13 +410,13 @@ export default function TermEarningsPage() {
               <span>Refresh</span>
             </button>
 
-            <button
+            {access.can("reports", "export") && <button
               onClick={handleExportCSV}
               className="px-4 py-2 text-xs font-bold bg-[#0047FF] hover:bg-blue-700 text-white rounded-none transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4" />
               <span>Export CSV Audit</span>
-            </button>
+            </button>}
           </div>
         </div>
 

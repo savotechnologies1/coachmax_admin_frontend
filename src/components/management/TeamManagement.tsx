@@ -22,6 +22,7 @@ import Pagination from "../common/Pagination";
 import { todayDateOnly, toDateOnly } from "../../utils/dateTime";
 import { z } from "zod";
 import { requiredText, validateWithSchema } from "../../utils/formValidation";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const teamFormSchema = z.object({
   teamName: requiredText("Team name"),
@@ -32,6 +33,7 @@ const teamFormSchema = z.object({
 });
 
 const TeamManagement: React.FC = () => {
+  const { can } = useCoachAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -449,7 +451,7 @@ const TeamManagement: React.FC = () => {
             ))}
           </select>
 
-          <Button onClick={handleOpenAdd} size="sm" className="!h-11 !min-h-11 !py-0 text-xs font-bold uppercase tracking-wider">Add Team</Button>
+          {can("teams", "create") && <Button onClick={handleOpenAdd} size="sm" className="!h-11 !min-h-11 !py-0 text-xs font-bold uppercase tracking-wider">Add Team</Button>}
         </div>
       </div>
 
@@ -602,7 +604,7 @@ const TeamManagement: React.FC = () => {
                             <span>Team Details</span>
                             <span>→</span>
                           </button>
-                          <button
+                          {can("teams", "edit") && <button
                             className="w-full text-left px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border-t border-slate-100 dark:border-slate-700"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -611,8 +613,8 @@ const TeamManagement: React.FC = () => {
                             }}
                           >
                             Edit Team
-                          </button>
-                          <button
+                          </button>}
+                          {((team.teamType === "EXTERNAL" || team.isExternal === true) ? can("teams", "create") : can("teams", "assign") && can("players", "assign")) && <button
                             className="w-full text-left px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border-t border-slate-100 dark:border-slate-700"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -625,11 +627,11 @@ const TeamManagement: React.FC = () => {
                             }}
                           >
                             {(team.teamType === "EXTERNAL" || team.isExternal === true) ? "+ Temp Players" : "Assign Players"}
-                          </button>
-                          <div className="border-t border-slate-100 px-2 py-1.5 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
+                          </button>}
+                          {can("communication", "create") && <div className="border-t border-slate-100 px-2 py-1.5 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
                             <TeamBroadcastButton teamId={team._id} teamName={team.teamName} className="w-full justify-center" />
-                          </div>
-                          <button
+                          </div>}
+                          {can("teams", "delete") && <button
                             className="w-full text-left px-4 py-2 text-xs font-semibold text-rose-600 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border-t border-slate-100 dark:border-slate-700 mt-1 pt-2"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -638,7 +640,7 @@ const TeamManagement: React.FC = () => {
                             }}
                           >
                             Archive Team
-                          </button>
+                          </button>}
                         </div>
                       )}
                     </td>

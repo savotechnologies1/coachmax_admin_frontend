@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Button from "../ui/button/Button";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 import { Modal } from "../ui/modal";
 import { getAllLeagues, createLeague, updateLeague, deleteLeague, getAllTeams, getAllTerms } from "../../api/adminApi";
 import { toast } from "react-hot-toast";
@@ -73,6 +74,7 @@ const getDatesForWeekday = (startDateStr: string, endDateStr: string, targetDayI
 };
 
 const LeagueManagement: React.FC = () => {
+  const { can, scope } = useCoachAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -708,7 +710,7 @@ const LeagueManagement: React.FC = () => {
             ))}
           </select>
 
-          <Button onClick={handleOpenAdd} size="sm">Add League</Button>
+          {can("leagues", "create") && scope("leagues") === "ALL" && <Button onClick={handleOpenAdd} size="sm">Add League</Button>}
         </div>
       </div>
 
@@ -840,13 +842,13 @@ const LeagueManagement: React.FC = () => {
                           >
                             View Details
                           </button>
-                          <ChatActionButton
+                          {can("communication", "create") && <ChatActionButton
                             contextLabel={league.name}
                             buttonText="League Chat"
                             className="w-full text-left px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border-t border-slate-100 dark:border-slate-700/60 inline-flex items-center gap-2"
                             ensureRoom={() => chatApi.openLeagueChat(league._id)}
-                          />
-                          <button
+                          />}
+                          {can("leagues", "edit") && scope("leagues") === "ALL" && <button
                             className="w-full text-left px-4 py-2 text-xs font-semibold text-[#0047FF] hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border-t border-slate-100 dark:border-slate-700/60"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -855,8 +857,8 @@ const LeagueManagement: React.FC = () => {
                             }}
                           >
                             Edit League
-                          </button>
-                          <button
+                          </button>}
+                          {can("leagues", "delete") && scope("leagues") === "ALL" && <button
                             className="w-full text-left px-4 py-2 text-xs font-semibold text-rose-600 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border-t border-slate-100 dark:border-slate-700 mt-1 pt-2"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -865,7 +867,7 @@ const LeagueManagement: React.FC = () => {
                             }}
                           >
                             Delete League
-                          </button>
+                          </button>}
                         </div>
                       )}
                     </td>

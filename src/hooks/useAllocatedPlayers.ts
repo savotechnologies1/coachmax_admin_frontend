@@ -3,6 +3,7 @@ import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { getAllocatedPlayers } from "../api/adminApi";
 import { UnallocatedPlayer } from "../types/academy";
 import { getMediaUrl, getMediaFallback } from "../utils/media";
+import { useCoachAccess } from "./useCoachAccess";
 
 const mapAllocatedToCard = (data: any): UnallocatedPlayer => {
   const avatar = getMediaUrl(data.profileImage, getMediaFallback(data.fullName || "Player"));
@@ -49,12 +50,7 @@ export const useAllocatedPlayers = (
   limit: number = 5,
   enabled: boolean = true
 ) => {
-  // Coaches do not have access to the admin players/search endpoint
-  let isCoach = false;
-  try {
-    const userStr = localStorage.getItem("user");
-    if (userStr) isCoach = JSON.parse(userStr)?.role === "COACH";
-  } catch { }
+  const access = useCoachAccess();
 
   return useQuery({
     queryKey: ["allocatedPlayers", category, program, search, page, limit],
@@ -81,7 +77,7 @@ export const useAllocatedPlayers = (
         pagination: { page: 1, limit: 5, total: 0, totalPages: 0, hasMore: false }
       };
     },
-    enabled: enabled && !isCoach,
+    enabled: enabled && access.can("players", "read"),
     refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
     initialData: {

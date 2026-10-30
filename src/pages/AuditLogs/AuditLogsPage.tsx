@@ -1,6 +1,7 @@
 import { formatDateTime } from "../../utils/dateTime";
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import PageMeta from "../../components/common/PageMeta";
 import PageBreadcrumb from "../../components/common/PageBreadcrumb";
 import apiClient from "../../api/apiClient";
@@ -12,11 +13,15 @@ interface AuditLog {
     name: string;
     email: string;
     role: string;
-  };
+  } | null;
   userRole: string;
+  actorName?: string;
+  actorEmail?: string;
   action: string;
   entityType: string;
   entityId: string;
+  entityName?: string;
+  source?: string;
   ipAddress: string;
   deviceInfo: string;
   oldValue: Record<string, any> | null;
@@ -33,6 +38,8 @@ interface AuditLogResponse {
   limit: number;
   totalPages: number;
   data: AuditLog[];
+  resolvedNames?: Record<string, string>;
+  filters?: { actions: string[]; entityTypes: string[]; actors: { _id: string; name: string; email: string; role: string }[] };
 }
 
 const formatDate = (value: string) => formatDateTime(value, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) || "N/A";
@@ -83,18 +90,26 @@ const formatActionLabel = (action: string) => {
   return (action || "UNKNOWN").replace(/_/g, " ");
 };
 
-const renderChanges = (oldVal: Record<string, any> | null, newVal: Record<string, any> | null) => {
+const safeEntries = (value: Record<string, any>) => Object.entries(value).filter(([key]) => !key.startsWith("_") && !/password|token|secret|otp/i.test(key));
+const friendlyValue = (value: any, names: Record<string, string>): string => {
+  if (typeof value === "string" && /^[a-f\d]{24}$/i.test(value)) return names[value] || "Previous record";
+  if (Array.isArray(value)) return value.map((item) => friendlyValue(item, names)).join(", ");
+  if (value && typeof value === "object") return Object.entries(value).filter(([key]) => !/password|token|secret|otp/i.test(key)).map(([key, item]) => `${key}: ${friendlyValue(item, names)}`).join(", ");
+  return String(value ?? "—");
+};
+const friendlyDescription = (log: AuditLog, names: Record<string, string>) => (log.description || "—").replace(/\b[a-f\d]{24}\b/gi, (id) => names[id] || (id === log.entityId ? log.entityName : "") || "previous record");
+const renderChanges = (oldVal: Record<string, any> | null, newVal: Record<string, any> | null, names: Record<string, string> = {}) => {
   if (!oldVal && !newVal) return null;
 
   if (!oldVal && newVal) {
     // Created — show new values
-    const entries = Object.entries(newVal).filter(([k]) => !k.startsWith("_"));
+    const entries = safeEntries(newVal);
     if (entries.length === 0) return null;
     return (
       <div className="mt-1.5 flex flex-wrap gap-1">
         {entries.slice(0, 3).map(([key, val]) => (
           <span key={key} className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-800/30">
-            <span className="text-emerald-400">{key}:</span> {String(val).substring(0, 25)}{String(val).length > 25 ? "…" : ""}
+            <span className="text-emerald-400">{key}:</span> {friendlyValue(val, names).substring(0, 35)}{friendlyValue(val, names).length > 35 ? "…" : ""}
           </span>
         ))}
         {entries.length > 3 && (
@@ -106,7 +121,7 @@ const renderChanges = (oldVal: Record<string, any> | null, newVal: Record<string
 
   if (oldVal && newVal) {
     // Updated — show diff
-    const changedKeys = Object.keys(newVal).filter(k => !k.startsWith("_") && JSON.stringify(oldVal[k]) !== JSON.stringify(newVal[k]));
+    const changedKeys = safeEntries(newVal).map(([key]) => key).filter(k => JSON.stringify(oldVal[k]) !== JSON.stringify(newVal[k]));
     if (changedKeys.length === 0) return null;
     return (
       <div className="mt-1.5 space-y-0.5">
@@ -114,13 +129,13 @@ const renderChanges = (oldVal: Record<string, any> | null, newVal: Record<string
           <div key={key} className="flex items-center gap-1 text-[9px] font-bold">
             <span className="text-slate-400 uppercase tracking-wider">{key}:</span>
             <span className="px-1 py-0.5 bg-rose-50 text-rose-500 border border-rose-100 line-through dark:bg-rose-950/20 dark:border-rose-800/30">
-              {String(oldVal[key] || "—").substring(0, 20)}
+              {friendlyValue(oldVal[key], names).substring(0, 30)}
             </span>
             <svg className="w-3 h-3 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
             <span className="px-1 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 dark:bg-emerald-950/20 dark:border-emerald-800/30">
-              {String(newVal[key] || "—").substring(0, 20)}
+              {friendlyValue(newVal[key], names).substring(0, 30)}
             </span>
           </div>
         ))}
@@ -135,21 +150,37 @@ const renderChanges = (oldVal: Record<string, any> | null, newVal: Record<string
 };
 
 export default function AuditLogsPage() {
+  const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [entityFilter, setEntityFilter] = useState("");
+  const [actorFilter, setActorFilter] = useState(searchParams.get("userId") || "");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [actionFilter, setActionFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const limit = 50;
+  useEffect(() => { const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300); return () => window.clearTimeout(timer); }, [search]);
 
   const { data, isLoading, isError } = useQuery<AuditLogResponse>({
-    queryKey: ["audit-logs", page, limit, search, entityFilter],
+    queryKey: ["audit-logs", page, limit, debouncedSearch, entityFilter, actorFilter, roleFilter, actionFilter, sourceFilter, startDate, endDate],
     queryFn: async () => {
       const params: any = { page, limit };
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       if (entityFilter) params.entityType = entityFilter;
+      if (actorFilter) params.userId = actorFilter;
+      if (roleFilter) params.userRole = roleFilter;
+      if (actionFilter) params.action = actionFilter;
+      if (sourceFilter) params.source = sourceFilter;
+      if (startDate) params.startAt = new Date(`${startDate}T00:00:00`).toISOString();
+      if (endDate) params.endAt = new Date(`${endDate}T23:59:59.999`).toISOString();
       const res = await apiClient.get("/api/admin/audit-logs", { params });
       return res.data;
     },
+    placeholderData: keepPreviousData,
   });
 
   const logs = data?.data || [];
@@ -220,7 +251,7 @@ export default function AuditLogsPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap gap-3 md:items-center">
           <div className="flex-1 max-w-sm relative">
             <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
               <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -235,25 +266,21 @@ export default function AuditLogsPage() {
               className="w-full rounded-none border border-gray-300 bg-white pl-10 pr-4 py-2.5 text-sm font-semibold outline-none focus:border-[#0047FF] dark:border-gray-700 dark:bg-gray-900 dark:text-white transition-colors"
             />
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={entityFilter}
               onChange={(e) => { setEntityFilter(e.target.value); setPage(1); }}
               className="rounded-none border border-gray-300 bg-white px-4 py-2.5 text-xs font-bold uppercase outline-none focus:border-[#0047FF] dark:border-gray-700 dark:bg-gray-900 dark:text-white cursor-pointer"
             >
-              <option value="">All Entity Types</option>
-              <option value="CoachNote">Coach Notes</option>
-              <option value="Attendance">Attendance</option>
-              <option value="User">Users / Players</option>
-              <option value="Class">Classes</option>
-              <option value="Payment">Payments</option>
-              <option value="Invoice">Invoices</option>
-              <option value="Event">Events</option>
-              <option value="Team">Teams</option>
-              <option value="Term">Terms</option>
-              <option value="Program">Programs</option>
-              <option value="Broadcast">Broadcasts</option>
+              <option value="">All areas</option>
+              {(data?.filters?.entityTypes || ["Attendance", "User", "Class", "Team", "League", "Event", "Product", "Invoice", "Admin"]).map((type) => <option key={type} value={type}>{type.replace(/([a-z])([A-Z])/g, "$1 $2")}</option>)}
             </select>
+            <select aria-label="Filter by person" value={actorFilter} onChange={(event) => { setActorFilter(event.target.value); setPage(1); }} className="rounded border border-gray-300 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900"><option value="">All people</option>{data?.filters?.actors?.map((actor) => <option key={actor._id} value={actor._id}>{actor.name || actor.email} ({actor.role})</option>)}</select>
+            <select aria-label="Filter by role" value={roleFilter} onChange={(event) => { setRoleFilter(event.target.value); setPage(1); }} className="rounded border border-gray-300 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900"><option value="">All roles</option><option value="SUPER_ADMIN">Super Admin</option><option value="ADMIN">Admin</option><option value="COACH">Coach</option><option value="UNVERIFIED">Unverified sign-in</option></select>
+            <select aria-label="Filter by action" value={actionFilter} onChange={(event) => { setActionFilter(event.target.value); setPage(1); }} className="rounded border border-gray-300 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900"><option value="">All actions</option>{data?.filters?.actions?.map((action) => <option key={action} value={action}>{formatActionLabel(action)}</option>)}</select>
+            <select aria-label="Filter by login source" value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value); setPage(1); }} className="rounded border border-gray-300 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900"><option value="">Web and app</option><option value="Web">Web</option><option value="App">App</option><option value="Unknown">Unknown</option></select>
+            <label className="flex items-center gap-1 text-xs text-gray-600">From <input aria-label="From date" type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setPage(1); }} className="rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900" /></label>
+            <label className="flex items-center gap-1 text-xs text-gray-600">To <input aria-label="To date" type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); setPage(1); }} className="rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900" /></label>
           </div>
         </div>
 
@@ -323,7 +350,7 @@ export default function AuditLogsPage() {
                         <td className="py-3.5 px-3">
                           <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
                             <span className="text-base leading-none">{getEntityIcon(log.entityType)}</span>
-                            <span className="uppercase tracking-wider text-[10px]">{log.entityType || "System"}</span>
+                            <span className="uppercase tracking-wider text-[10px]">{(log.entityType || "System").replace(/([a-z])([A-Z])/g, "$1 $2")}</span>
                           </span>
                         </td>
 
@@ -337,9 +364,10 @@ export default function AuditLogsPage() {
                         {/* Description & Changes */}
                         <td className="py-3.5 px-3">
                           <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-relaxed">
-                            {log.description || "—"}
+                            {friendlyDescription(log, data?.resolvedNames || {})}
                           </p>
-                          {renderChanges(log.oldValue, log.newValue)}
+                          {log.entityName && <p className="mt-1 text-xs font-medium text-blue-700 dark:text-blue-300">Record: {log.entityName}</p>}
+                          {renderChanges(log.oldValue, log.newValue, data?.resolvedNames)}
                         </td>
 
                         {/* Performed By */}
@@ -360,7 +388,8 @@ export default function AuditLogsPage() {
                               </div>
                             </div>
                           ) : (
-                            <span className="text-xs text-slate-400 font-semibold italic">System</span>
+                            <div><span className="block text-xs text-slate-600 font-semibold">{log.actorName || log.actorEmail || "Former staff member"}</span>
+                              <span className={`mt-1 inline-block border px-1.5 text-[8px] font-black uppercase ${getRoleBadge(log.userRole)}`}>{log.userRole || "STAFF"}</span></div>
                           )}
                         </td>
 
@@ -376,11 +405,12 @@ export default function AuditLogsPage() {
                           <span className="text-[10px] font-mono text-slate-400 bg-slate-50 dark:bg-slate-800 px-1.5 py-0.5 border border-slate-100 dark:border-slate-700">
                             {log.ipAddress?.replace("::ffff:", "") || "—"}
                           </span>
+                          {log.source && <span className="mt-1 block text-[10px] text-slate-500">{log.source}</span>}
                         </td>
 
                         {/* Expand Toggle */}
                         <td className="py-3.5 px-4 text-center">
-                          <button className="text-slate-400 hover:text-[#0047FF] transition-colors">
+                          <button type="button" aria-label={`${expandedRow === log._id ? "Hide" : "Show"} details for ${log.entityName || log.entityType}`} className="text-slate-400 hover:text-[#0047FF] transition-colors">
                             <svg className={`w-4 h-4 transition-transform ${expandedRow === log._id ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                             </svg>
@@ -397,8 +427,8 @@ export default function AuditLogsPage() {
                               <div className="space-y-2">
                                 <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Entity Info</h5>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-slate-400 font-bold">Entity ID:</span>
-                                  <span className="font-mono text-slate-600 dark:text-slate-300 text-[10px] bg-white dark:bg-slate-900 px-1.5 py-0.5 border border-slate-100 dark:border-slate-700">{log.entityId}</span>
+                                  <span className="text-slate-400 font-bold">Record:</span>
+                                  <span className="text-slate-700 dark:text-slate-300 text-xs">{log.entityName || "Previous record"}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <span className="text-slate-400 font-bold">Type:</span>
@@ -410,7 +440,7 @@ export default function AuditLogsPage() {
                               <div className="space-y-2">
                                 <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Device Info</h5>
                                 <p className="text-[10px] text-slate-500 font-medium leading-relaxed break-all bg-white dark:bg-slate-900 p-2 border border-slate-100 dark:border-slate-700">
-                                  {log.deviceInfo || "N/A"}
+                                  {log.source || "Unknown source"}{log.deviceInfo ? ` · ${log.deviceInfo}` : ""}
                                 </p>
                               </div>
 
@@ -421,7 +451,7 @@ export default function AuditLogsPage() {
                                   <div>
                                     <span className="text-[9px] font-black uppercase tracking-widest text-rose-400 mb-1 block">Old Value</span>
                                     <pre className="text-[10px] text-slate-500 bg-white dark:bg-slate-900 p-2 border border-slate-100 dark:border-slate-700 overflow-x-auto max-h-[100px] font-mono">
-                                      {JSON.stringify(log.oldValue, null, 2)}
+                                      {friendlyValue(log.oldValue, data?.resolvedNames || {})}
                                     </pre>
                                   </div>
                                 )}
@@ -429,7 +459,7 @@ export default function AuditLogsPage() {
                                   <div>
                                     <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 mb-1 block">New Value</span>
                                     <pre className="text-[10px] text-slate-500 bg-white dark:bg-slate-900 p-2 border border-slate-100 dark:border-slate-700 overflow-x-auto max-h-[100px] font-mono">
-                                      {JSON.stringify(log.newValue, null, 2)}
+                                      {friendlyValue(log.newValue, data?.resolvedNames || {})}
                                     </pre>
                                   </div>
                                 )}

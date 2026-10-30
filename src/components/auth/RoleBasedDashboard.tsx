@@ -1,8 +1,10 @@
 import React from "react";
 import Home from "../../pages/Dashboard/Home";
 import CoachDashboard from "../../pages/Dashboard/CoachDashboard";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const RoleBasedDashboard: React.FC = () => {
+  const { isFull } = useCoachAccess();
   const userStr = localStorage.getItem("user");
   let user = null;
 
@@ -14,7 +16,7 @@ const RoleBasedDashboard: React.FC = () => {
     console.error("Failed to parse user from local storage", error);
   }
 
-  if (["SUPER_ADMIN", "ADMIN"].includes(user?.role)) {
+  if (["SUPER_ADMIN", "ADMIN"].includes(user?.role) || isFull) {
     return <Home />;
   }
 

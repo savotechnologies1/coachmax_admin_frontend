@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useCategories } from "../hooks/useCategories";
 import { useSidebarBadges } from "../hooks/useSidebarBadges";
+import { useCoachAccess, type AccessModule } from "../hooks/useCoachAccess";
 
 type NavSubItem = {
   name: string;
@@ -56,13 +57,7 @@ const AppSidebar: React.FC = () => {
   const collapsedTriggerRef = useRef<HTMLButtonElement | null>(null);
   const collapsedFlyoutRef = useRef<HTMLDivElement | null>(null);
 
-  const userStr = localStorage.getItem("user");
-  let userRole = "";
-  if (userStr) {
-    try {
-      userRole = JSON.parse(userStr)?.role || "";
-    } catch { }
-  }
+  const { role: userRole, isFull, can, scope } = useCoachAccess();
 
   const [subMenuHeight, setSubMenuHeight] = useState<Record<string, number>>({});
   const subMenuRefs = useRef<Record<string, HTMLUListElement | null>>({});
@@ -292,7 +287,52 @@ const AppSidebar: React.FC = () => {
     },
   ], [badges, programsSubItems]);
 
-  const menuSections = ["SUPER_ADMIN", "ADMIN"].includes(userRole) ? adminMenuSections : coachMenuSections;
+  const partialMenuSections: MenuSection[] = adminMenuSections.map((section) => ({
+    ...section,
+    items: section.items.flatMap((item): NavItem[] => {
+      const moduleByName: Record<string, AccessModule> = {
+        Dashboard: "dashboard", "Players Management": "players", Programs: "programs",
+        Classes: "classes", Events: "events", Leagues: "leagues",
+        "Teams Management": "teams", Communication: "communication", Finance: "payments",
+        Store: "store", News: "news", "Coaching Management": "programs",
+        "Coach Manage": "coaches", Sponsors: "sponsors", "Audit Logs": "audit",
+        "Clone Term": "terms",
+      };
+      if (item.name === "Settings") return [{ ...item, name: "My Profile" }];
+      const module = moduleByName[item.name];
+      if (!module) return [];
+      const allowed = item.name === "Players Management"
+        ? can("players", "read") || can("players", "create") || can("requests", "read")
+        : item.name === "Finance"
+          ? can("payments", "read") || can("bankDetails", "read") || can("invoices", "read") || can("reports", "read")
+          : item.name === "Store"
+            ? can("store", "read") || can("orders", "read")
+            : can(module, "read");
+      if (!allowed) return [];
+      if (item.name === "Players Management") return [{ ...item, badgeCount: 0, subItems: [
+        ...(can("players", "read") ? [{ name: "Players", path: "/players" }] : []),
+        ...(can("players", "create") ? [{ name: "Add Players", path: "/add-temporary-players" }] : []),
+        ...(can("requests", "read") ? [{ name: "New Players Request", path: "/new-registration-request" }] : []),
+      ] }];
+      if (item.name === "Finance") return [{ ...item, badgeCount: 0, subItems: item.subItems?.filter((entry) =>
+        entry.path === "/bank-details" ? can("bankDetails", "read") :
+        entry.path === "/invoices" ? can("invoices", "read") :
+        entry.path === "/term-earnings" ? can("reports", "read") && scope("reports") === "ALL" :
+        can("payments", "read")) }];
+      if (item.name === "Store") return [{ ...item, subItems: item.subItems?.filter((entry) =>
+        entry.path === "/orders" ? can("orders", "read") : can("store", "read")) }];
+      if (item.name === "Communication" && scope("communication") === "ASSIGNED") return [{ ...item, subItems: item.subItems?.filter((entry) =>
+        entry.path !== "/announcements" || (can("classes", "read") && can("communication", "create"))).map((entry) =>
+        entry.path === "/communication" ? { ...entry, path: "/messages" } : entry) }];
+      if (item.name === "Classes") return [{ ...item, path: "/classes" }];
+      if (item.name === "Coach Manage" && scope("coaches") !== "ALL") return [];
+      return [item];
+    }),
+  })).filter((section) => section.items.length > 0);
+  if (userRole === "COACH" && !isFull && can("notes", "read")) partialMenuSections.push({ title: "Coach", key: "coach", items: [
+    { name: "My Notes", icon: navIcon(ClipboardList), path: "/coach-notes" },
+  ] });
+  const menuSections = isFull ? adminMenuSections : userRole === "COACH" ? partialMenuSections : coachMenuSections;
 
   const collapsedSubmenuItem = collapsedSubmenu
     ? menuSections
