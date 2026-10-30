@@ -32,7 +32,7 @@ import HolidayCampRegistrationModal from "./HolidayCampRegistrationModal";
 import Button from "../ui/button/Button";
 import { UserPlus, UserCheck2, List } from "lucide-react";
 import { useSidebarBadges } from "../../hooks/useSidebarBadges";
-import { formatDateOnly, formatDateTime } from "../../utils/dateTime";
+import { formatDateOnly, formatDateTime, toDateOnly } from "../../utils/dateTime";
 import { sortPlayersByPaymentStatus } from "../../utils/paymentStatus";
 import ConfirmDeleteModal from "../ui/modal/ConfirmDeleteModal";
 
@@ -232,6 +232,9 @@ const EventDetailsComp: React.FC = () => {
     );
   }
 
+  const startDate = toDateOnly(event.startDate);
+  const endDate = toDateOnly(event.endDate);
+  const hasReversedDates = Boolean(startDate && endDate && startDate > endDate);
   const metrics = [
     { label: "Total Capacity", value: event.stats.totalSlots, icon: Layers, color: "text-blue-500", bg: "bg-blue-500/10" },
     { label: "Registered", value: event.stats.registered, icon: UserCheck, color: "text-success-500", bg: "bg-success-500/10" },
@@ -240,6 +243,12 @@ const EventDetailsComp: React.FC = () => {
 
   return (
     <div className="space-y-3.5 pb-6">
+      {hasReversedDates && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+          <span>End date is before start date. Check and correct this event's dates.</span>
+          <button type="button" onClick={() => navigate(`/edit-event/${event._id}`)} className="font-semibold underline underline-offset-2">Edit event dates</button>
+        </div>
+      )}
       {/* Sleek Compact Event Header (Minimum Height to prioritize Attendance visibility) */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm transition-all duration-200">
         <div className="px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">

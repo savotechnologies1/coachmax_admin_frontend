@@ -9,7 +9,7 @@ import { Pencil, Trash2, ChevronDown, ChevronUp, CalendarDays, X } from "lucide-
 import DatePicker from "../form/date-picker";
 import ConfirmDeleteModal from "../ui/modal/ConfirmDeleteModal";
 import TermCalendar from "./TermCalendar";
-import { formatDateOnly, toDateOnly, ageGroupContextYear } from "../../utils/dateTime";
+import { formatDateOnly, toDateOnly, dateOnlyToLocalDate, ageGroupContextYear } from "../../utils/dateTime";
 
 import { smartErrorToast } from "../../utils/toast";
 import FormHeader from "../form/FormHeader";
@@ -44,6 +44,7 @@ const TermManagement: React.FC = () => {
         startDate: "",
         endDate: "",
     });
+    const [initialFormYear, setInitialFormYear] = useState(ageGroupContextYear());
 
     const formatDate = (dateStr: string) => formatDateOnly(dateStr) || "N/A";
 
@@ -83,6 +84,7 @@ const TermManagement: React.FC = () => {
 
     const handleOpenAdd = () => {
         setFormErrors({});
+        setInitialFormYear(selectedYear);
         setFormData({
             name: "",
             year: selectedYear,
@@ -96,6 +98,7 @@ const TermManagement: React.FC = () => {
 
     const handleOpenEdit = (term: any) => {
         setFormErrors({});
+        setInitialFormYear(term.year || selectedYear);
         setFormData({
             name: term.name || "",
             year: term.year || selectedYear,
@@ -106,6 +109,22 @@ const TermManagement: React.FC = () => {
         setSelectedId(term._id);
         setIsModalOpen(true);
     };
+
+    const calendarFocusDate = (dateValue: string): Date => {
+        const selectedDate = dateOnlyToLocalDate(dateValue);
+        // Existing dates, including a term ending in the following year, stay
+        // visible until the admin changes the Year field.
+        if (selectedDate && (formData.year === initialFormYear || selectedDate.getFullYear() === formData.year)) {
+            return selectedDate;
+        }
+        const year = formData.year >= 2000 && formData.year <= 2100 ? formData.year : initialFormYear;
+        return new Date(year, selectedDate?.getMonth() ?? new Date().getMonth(), 1);
+    };
+
+    const termDatePickerOptions = (dateValue: string): NonNullable<React.ComponentProps<typeof DatePicker>["options"]> => ({
+        onReady: (_dates, _value, picker) => picker.jumpToDate(calendarFocusDate(dateValue)),
+        onOpen: (_dates, _value, picker) => picker.jumpToDate(calendarFocusDate(dateValue)),
+    });
 
     const handleDeleteClick = (id: string) => {
         setDeleteModalId(id);
@@ -327,6 +346,7 @@ const TermManagement: React.FC = () => {
                                 id="term-start"
                                 label="Start Date *"
                                 defaultDate={formData.startDate}
+                                options={termDatePickerOptions(formData.startDate)}
                                 onChange={(_, dateStr) => handleDateChange("startDate", dateStr)}
                                 required
                                 error={formErrors.startDate}
@@ -338,6 +358,7 @@ const TermManagement: React.FC = () => {
                                 id="term-end"
                                 label="End Date *"
                                 defaultDate={formData.endDate}
+                                options={termDatePickerOptions(formData.endDate)}
                                 onChange={(_, dateStr) => handleDateChange("endDate", dateStr)}
                                 required
                                 error={formErrors.endDate}

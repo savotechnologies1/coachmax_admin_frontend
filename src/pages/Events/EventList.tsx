@@ -94,10 +94,11 @@ export default function EventList() {
 
     const orderedEvents = useMemo(() => events
         .map((event) => {
+            const startDate = toDateOnly(event.startDate);
             const endDate = toDateOnly(event.endDate);
             // Keep admin-selected status for active/future events. Ended events
-            // always move to Completed once their end date has passed.
-            const status = endDate && endDate < today ? "COMPLETED" : event.status;
+            // move to Completed only when their saved date range is valid.
+            const status = startDate && endDate && startDate <= endDate && endDate < today ? "COMPLETED" : event.status;
             return { ...event, status };
         })
         .filter((event) => selectedYear === "all" || (toDateOnly(event.startDate) || toDateOnly(event.endDate)).startsWith(selectedYear))
@@ -264,6 +265,9 @@ export default function EventList() {
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     {section.events.map((event) => {
                         const StatusIcon = statusIcons[event.status];
+                        const startDate = toDateOnly(event.startDate);
+                        const endDate = toDateOnly(event.endDate);
+                        const hasReversedDates = Boolean(startDate && endDate && startDate > endDate);
                         return (
                             <div
                                 key={event._id}
@@ -367,6 +371,11 @@ export default function EventList() {
                                             </div>
                                             <span>{formatDate(event.startDate)} - {formatDate(event.endDate)}</span>
                                         </div>
+                                        {hasReversedDates && (
+                                            <div role="alert" className="border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                                                End date is before start date. <Link to={`/edit-event/${event._id}`} onClick={(e) => e.stopPropagation()} className="underline underline-offset-2">Correct dates</Link>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Enhanced Stats Section */}
