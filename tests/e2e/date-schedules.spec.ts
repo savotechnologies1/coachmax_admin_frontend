@@ -195,7 +195,7 @@ test.describe("Mocked-backend browser acceptance", () => {
 
   test("DOB control displays DD/MM/YYYY and submits the selected calendar day in multipart", async ({ page }) => {
     await page.goto(`/player/${ids.player}`);
-    await page.getByRole("button", { name: "Edit Player", exact: true }).click();
+    await page.getByRole("button", { name: "Edit player", exact: true }).click();
     const dobInput = page.getByRole("textbox", { name: "Date (DD/MM/YYYY)", exact: true });
     await expect(dobInput).toHaveValue("30/10/2015");
     await chooseDate(page, dobInput, "2015-10-31");
@@ -204,7 +204,8 @@ test.describe("Mocked-backend browser acceptance", () => {
     await page.getByRole("button", { name: "Save Changes", exact: true }).click();
     await expect.poll(() => state.playerWrites.length).toBe(1);
     expect(state.playerWrites[0]).toContain('name="dob"\r\n\r\n2015-10-31');
-    await expect(page.getByText("31/10/2015 (U11)", { exact: true })).toBeVisible();
+    await expect(page.getByText("31/10/2015", { exact: true })).toBeVisible();
+    await expect(page.getByText("Academy · U11", { exact: true })).toBeVisible();
   });
 
   test("a rejected term save keeps the form open and shows the real server error", async ({ page }) => {

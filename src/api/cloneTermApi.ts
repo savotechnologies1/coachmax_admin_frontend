@@ -10,7 +10,11 @@ export interface CloneTermInfo {
 
 export const getCloneTermInfo = async (termId: string): Promise<CloneTermInfo> => {
   const response = await apiClient.get(`/api/admin/cloneTerm/term-info/${termId}`);
-  return response.data.data;
+  const info = response.data?.data as CloneTermInfo | undefined;
+  if (!info?.term?._id || !info.counts || !Array.isArray(info.classes) || !Array.isArray(info.leagues) || !Array.isArray(info.teams)) {
+    throw new Error("Term information is unavailable. Please retry.");
+  }
+  return info;
 };
 
 export interface CloneProgress {

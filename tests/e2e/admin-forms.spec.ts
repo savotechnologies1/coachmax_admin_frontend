@@ -86,6 +86,7 @@ async function mockAdminApp(page: Page): Promise<TestState> {
       });
     }
     if (path === "/api/admin/getAllTerms" || path === "/api/user/getAllTerms") return send({ data: [term] });
+    if (path.startsWith("/api/admin/cloneTerm/term-info/")) return send({ success: true, data: { term, counts: { classes: 0, leagues: 0, teams: 0, players: 0 }, classes: [], leagues: [], teams: [] } });
     if (path === "/api/admin/getAllCoaches") return send({ data: [coach] });
     if (path === "/api/admin/getAllTeams") return send({ success: true, data: [], pagination: { total: 0, totalPages: 1 } });
     if (path === "/api/admin/leagues") return send({ success: true, data: [] });
@@ -209,11 +210,11 @@ test.describe("CoachMax form design and submission acceptance", () => {
     await page.keyboard.press("Escape");
     await page.getByRole("combobox", { name: "Product category" }).click();
     await page.getByRole("option", { name: "CoachMax Test Apparel", exact: true }).click();
-    await page.getByLabel("Product Name *").fill("Training Top");
-    await page.getByLabel("Price (AUD) *").fill("49.95");
+    await page.getByRole("textbox", { name: "Product Name (required)", exact: true }).fill("Training Top");
+    await page.getByRole("spinbutton", { name: "Price (AUD) (required)", exact: true }).fill("49.95");
     await page.getByLabel("Search sizes or type a custom size").fill("Medium");
     await page.getByRole("option", { name: "Medium M", exact: true }).click();
-    await page.getByLabel("Colors *").fill("Navy, White");
+    await page.getByRole("textbox", { name: "Colors (required)", exact: true }).fill("Navy, White");
     await page.locator('input[type="file"]').setInputFiles(await pngFile(page, "product.png", 1200, 1200));
     await expect(page.getByText("Final file: 1200 × 1200 px", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Use this crop", exact: true }).click();
@@ -230,8 +231,8 @@ test.describe("CoachMax form design and submission acceptance", () => {
     await page.getByRole("button", { name: "Add Coach", exact: true }).click();
     const coachForm = page.locator('form[data-coachmax-form]');
     const coachDialogShell = page.locator(".coachmax-form-header").locator("xpath=../..");
-    await expect(coachDialogShell).toHaveCSS("border-top-left-radius", "8px");
-    await expect(coachDialogShell).toHaveCSS("border-bottom-left-radius", "8px");
+    await expect(coachDialogShell).toHaveCSS("border-top-left-radius", "12px");
+    await expect(coachDialogShell).toHaveCSS("border-bottom-left-radius", "12px");
     await expect(coachDialogShell).toHaveCSS("overflow-x", "hidden");
     await coachForm.getByRole("button", { name: "Add Coach", exact: true }).click();
     await expect(page.locator("#coach-full-name-error")).toHaveText("Full name is required.");
@@ -252,9 +253,9 @@ test.describe("CoachMax form design and submission acceptance", () => {
     await expect(page.locator("#sponsor-subtitle-error")).toHaveText("Subtitle or offer is required.");
     await expect(page.locator("#sponsor-link-error")).toHaveText("Action link is required.");
     await expect(page.locator("#sponsor-image-error")).toHaveText("Upload a banner image to create this sponsor.");
-    await page.getByLabel("Banner Title *").fill("Season Partner");
-    await page.getByLabel("Subtitle / Offer *").fill("Official training partner");
-    await page.getByLabel("Action Link / URL *").fill("https://example.test/partner");
+    await page.getByRole("textbox", { name: "Banner Title (required)", exact: true }).fill("Season Partner");
+    await page.getByRole("textbox", { name: "Subtitle / Offer (required)", exact: true }).fill("Official training partner");
+    await page.getByRole("textbox", { name: "Action Link / URL (required)", exact: true }).fill("https://example.test/partner");
     await page.locator('input[type="file"]').setInputFiles(await pngFile(page, "sponsor.png", 1200, 400));
     await expect(page.getByText("Final file: 1200 × 400 px", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Use this crop", exact: true }).click();
@@ -287,8 +288,8 @@ test.describe("CoachMax form design and submission acceptance", () => {
     await page.getByRole("link", { name: "Add News", exact: true }).click();
     await expect(page).toHaveURL(/\/add-content$/);
     const newsFormCard = page.locator(".coachmax-form-header").locator("xpath=..");
-    await expect(newsFormCard).toHaveCSS("border-top-left-radius", "8px");
-    await expect(newsFormCard).toHaveCSS("border-bottom-left-radius", "8px");
+    await expect(newsFormCard).toHaveCSS("border-top-left-radius", "12px");
+    await expect(newsFormCard).toHaveCSS("border-bottom-left-radius", "12px");
     await expect(newsFormCard).toHaveCSS("overflow-x", "hidden");
     await page.getByRole("button", { name: "Publish Article", exact: true }).click();
     await expect(page.getByText("Headline title is required.", { exact: true })).toBeVisible();
@@ -336,8 +337,8 @@ test.describe("CoachMax form design and submission acceptance", () => {
     await page.getByRole("button", { name: "Add Term", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Schedule New Term" })).toBeVisible();
     const termDialogShell = page.locator(".coachmax-form-header").locator("xpath=../..");
-    await expect(termDialogShell).toHaveCSS("border-top-left-radius", "8px");
-    await expect(termDialogShell).toHaveCSS("border-bottom-left-radius", "8px");
+    await expect(termDialogShell).toHaveCSS("border-top-left-radius", "12px");
+    await expect(termDialogShell).toHaveCSS("border-bottom-left-radius", "12px");
     await expect(termDialogShell).toHaveCSS("overflow-x", "hidden");
     await page.getByRole("button", { name: "Commit Term", exact: true }).click();
     await expect(page.locator("#term-name-error")).toHaveText("Term name is required.");
