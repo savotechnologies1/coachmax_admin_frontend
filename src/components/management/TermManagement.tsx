@@ -28,7 +28,9 @@ const termSchema = z.object({
     }
 });
 
-const TermManagement: React.FC = () => {
+const TermManagement: React.FC<{ initialYear?: number | string }> = ({ initialYear }) => {
+    const currentYear = ageGroupContextYear();
+    const initialSelectedYear = Number(initialYear) || currentYear;
     const [showCalendar, setShowCalendar] = useState(true);
     const [showList, setShowList] = useState(true);
 
@@ -40,17 +42,18 @@ const TermManagement: React.FC = () => {
 
     const [formData, setFormData] = useState({
         name: "",
-        year: ageGroupContextYear(),
+        year: initialSelectedYear,
         startDate: "",
         endDate: "",
     });
-    const [initialFormYear, setInitialFormYear] = useState(ageGroupContextYear());
+    const [initialFormYear, setInitialFormYear] = useState(initialSelectedYear);
 
     const formatDate = (dateStr: string) => formatDateOnly(dateStr) || "N/A";
 
-    const currentYear = ageGroupContextYear();
-    const [selectedYear, setSelectedYear] = useState<number>(currentYear);
-    const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 2 + i);
+    const [selectedYear, setSelectedYear] = useState<number>(initialSelectedYear);
+    const yearOptions = Array.from({ length: 7 }, (_, i) => currentYear - 1 + i);
+    if (!yearOptions.includes(initialSelectedYear)) yearOptions.push(initialSelectedYear);
+    yearOptions.sort((a, b) => a - b);
 
     const { terms, isLoading: loading } = useTerms({
         year: selectedYear,

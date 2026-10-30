@@ -41,7 +41,7 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
   const [categoryName, setCategoryName] = useState("");
   const [programId, setProgramId] = useState("");
   const [programName, setProgramName] = useState("");
-  const [, setYear] = useState("");
+  const [year, setYear] = useState("");
   const [termId, setTermId] = useState("");
   const [expandedClassIds, setExpandedClassIds] = useState<Record<string, boolean>>({});
   const [targetHighlightClassId, setTargetHighlightClassId] = useState<string | null>(null);
@@ -153,17 +153,6 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
     const target = timeSlots.find((slot: any) => String(slot.classId) === String(targetHighlightClassId));
     if (target) setExpandedClassIds((prev) => ({ ...prev, [occurrenceKey(target)]: true }));
   }, [targetHighlightClassId, timeSlots]);
-
-  // The header selects category, program, and term asynchronously on a fresh page load.
-  // Refetch once those values are ready so the initial day is populated without
-  // requiring the user to switch tabs first.
-  useEffect(() => {
-    if (!categoryId || !programId || !termId) return;
-    void queryClient.refetchQueries({
-      queryKey: ["classFiltersWithTimeSlots", categoryId, programId, scheduleDayQuery(activeDay), termId],
-      type: "active",
-    });
-  }, [categoryId, programId, termId, activeDay, queryClient]);
 
   const handleEditClass = async (classId: string) => {
     try {
@@ -380,6 +369,7 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
         programType={programType}
         selectedCategoryId={categoryId}
         selectedProgramId={programId}
+        selectedYear={year}
         selectedTermId={termId}
         onCategoryChange={(id, name) => {
           setCategoryId(id);
@@ -389,7 +379,7 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
           setProgramId(id);
           if (name) setProgramName(name);
         }}
-        onYearChange={(year) => { setYear(year); }}
+        onYearChange={setYear}
         onTermChange={setTermId}
         onOpenCreateClass={() => {
           setClassToEdit(null);
@@ -409,7 +399,11 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
       <div className="flex flex-col xl:flex-row gap-4 items-start w-full">
         {/* Left Side: Attendance Tables */}
         <div className="flex-1 w-full min-w-0">
-          {scheduleError ? (
+          {!termId && year ? (
+            <div role="status" className="p-8 text-center text-slate-500 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+              No terms are available for {year}. Create one in Term Settings to schedule classes.
+            </div>
+          ) : scheduleError ? (
             <div role="alert" className="p-6 text-sm text-red-600">Classes could not be loaded. <button type="button" className="underline" onClick={() => void refetchSchedule()}>Retry</button></div>
           ) : scheduleLoading ? <div role="status" className="p-6 text-sm text-slate-500">Loading classes…</div> : timeSlots.length > 0 ? (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 md:p-6 shadow-sm flex flex-col gap-3">
@@ -546,7 +540,7 @@ export default function Academy({ programType = "Academy" }: AcademyProps) {
         className="max-w-5xl mx-auto"
       >
         <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-6 rounded-none shadow-sm">
-          <TermManagement />
+          <TermManagement initialYear={year} />
         </div>
       </Modal>
 

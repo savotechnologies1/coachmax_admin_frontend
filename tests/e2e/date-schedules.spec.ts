@@ -12,6 +12,7 @@ const months = ["January", "February", "March", "April", "May", "June", "July", 
 
 type MockState = {
   terms: typeof term[];
+  classFilterReads: string[];
   creates: Record<string, unknown>[];
   updates: Record<string, unknown>[];
   rosterReads: string[];
@@ -26,7 +27,7 @@ type MockState = {
 };
 
 async function mockApplication(page: Page): Promise<MockState> {
-  const state: MockState = { terms: [structuredClone(term), { ...term, _id: ids.future, name: "Term 1", year: 2027, startDate: "2027-01-15", endDate: "2027-03-31", status: "UPCOMING" }], creates: [], updates: [], rosterReads: [], attendanceWrites: [], playerWrites: [], runtimeErrors: [], unexpectedRequests: [], rejectTerm: false, currentDob: player.dob, note: "", status: "PRESENT" };
+  const state: MockState = { terms: [structuredClone(term), { ...term, _id: ids.future, name: "Term 1", year: 2027, startDate: "2027-01-15", endDate: "2027-03-31", status: "UPCOMING" }, { ...term, _id: "111111111111111111111114", name: "Event Term", year: 2028, startDate: "2028-01-15", endDate: "2028-03-31", status: "UPCOMING", isEvent: true }], classFilterReads: [], creates: [], updates: [], rosterReads: [], attendanceWrites: [], playerWrites: [], runtimeErrors: [], unexpectedRequests: [], rejectTerm: false, currentDob: player.dob, note: "", status: "PRESENT" };
   page.on("pageerror", (error) => state.runtimeErrors.push(error.message));
   await page.clock.setFixedTime(new Date("2026-10-26T05:00:00Z"));
   await page.addInitScript((user) => {
@@ -77,6 +78,7 @@ async function mockApplication(page: Page): Promise<MockState> {
       { classId: ids.first, className: "U11 Development", dayOfWeek: "WEDNESDAY", startTime: "17:00", endTime: "18:00", occurrenceId: `${ids.first}:WEDNESDAY:1020:1080` },
     ].map((slot) => ({ ...slot, category, program, term, coach: { _id: staff._id, name: "Test Coach" }, playerCount: 1, status: "ACTIVE" }));
     if (pathname === "/api/admin/getClassFiltersWithTimeSlots") {
+      state.classFilterReads.push(url.searchParams.get("termId") || "");
       const day = url.searchParams.get("day");
       return send({ terms: [term], categories: [category], programs: [program], days: ["MONDAY", "TUESDAY", "WEDNESDAY"], timeSlots: slots.filter((slot) => day === "ALL" || day === slot.dayOfWeek) });
     }
@@ -171,6 +173,44 @@ test.describe("Mocked-backend browser acceptance", () => {
     await expect(mondayCard.getByText("26/10/2026", { exact: true })).toBeVisible();
     await expect(mondayCard.getByText("28/10/2026", { exact: true })).toHaveCount(0);
     await expect(mondayCard.getByText("30/10/2015", { exact: true })).toBeVisible();
+  });
+
+  test("Academy year selection keeps its matching term and empty future years without stale class requests", async ({ page }) => {
+    await page.goto("/program/academy");
+    const yearSelect = page.locator(".program-toolbar-select").nth(2).getByRole("combobox");
+    const termSelect = page.locator(".program-toolbar-select").nth(3).getByRole("combobox");
+    await expect(yearSelect).toContainText("2026");
+    await expect(termSelect).toContainText("Term 4");
+    await expect.poll(() => state.classFilterReads.includes(ids.term)).toBe(true);
+
+    const selectYear = async (year: string) => {
+      await yearSelect.click();
+      await page.getByRole("option", { name: year, exact: true }).click();
+      await expect(yearSelect).toContainText(year);
+    };
+
+    const classReadsBeforeYearChange = state.classFilterReads.length;
+    await selectYear("2027");
+    await expect(termSelect).toContainText("Term 1");
+    await expect.poll(() => state.classFilterReads.includes(ids.future)).toBe(true);
+    expect(state.classFilterReads.slice(classReadsBeforeYearChange)).toEqual([ids.future]);
+
+    const classReadsBeforeEmptyYears = state.classFilterReads.length;
+    await selectYear("2028");
+    await expect(termSelect).toBeDisabled();
+    await expect(termSelect).toContainText("No terms for 2028");
+    await expect(page.getByText("No terms are available for 2028.", { exact: false })).toBeVisible();
+    await selectYear("2029");
+    await expect(termSelect).toBeDisabled();
+    await expect(termSelect).toContainText("No terms for 2029");
+    await expect(page.getByText("No terms are available for 2029.", { exact: false })).toBeVisible();
+    expect(state.classFilterReads).toHaveLength(classReadsBeforeEmptyYears);
+    await expect(page.getByText("Network error. Please check your connection.")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Term Settings", exact: true }).click();
+    await expect(page.locator("select").filter({ has: page.locator('option[value="2029"]') }).first()).toHaveValue("2029");
+    await page.getByRole("button", { name: "Add Term", exact: true }).click();
+    await expect(page.locator('input[name="year"]')).toHaveValue("2029");
   });
 
   test("notes save independently for a present player and Clear Status preserves the note", async ({ page }) => {

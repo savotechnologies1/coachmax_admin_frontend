@@ -1,9 +1,9 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router";
 import { useCategories } from "../../hooks/useCategories";
 import { useTerms } from "../../hooks/useTerms";
 import { useProgramsByCategory } from "../../hooks/usePrograms";
-import { findCurrentTerm } from "../../hooks/useCurrentTerm";
+import { findCurrentTerm, getCurrentYearNumber } from "../../hooks/useCurrentTerm";
 import Select from "../form/Select";
 
 interface AcademyHeaderProps {
@@ -49,21 +49,18 @@ export default function AcademyHeader({
   const location = useLocation();
   const state = location.state as any;
 
-  const [terms, setTerms] = useState<any[]>([]);
-
   const [selectedCategory, setSelectedCategory] = useState<string>(selectedCategoryId || "");
   const [selectedProgram, setSelectedProgram] = useState<string>(selectedProgramId || "");
   const [selectedYear, setSelectedYear] = useState<string>(selectedYearProp || "");
   const [selectedTerm, setSelectedTerm] = useState<string>(selectedTermId || "");
-  const [availableYears, setAvailableYears] = useState<string[]>([]);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const lastExternalTermId = useRef<string | undefined>(undefined);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   const { categories } = useCategories({ isEvent: "all" });
   const { programs } = useProgramsByCategory(selectedCategory);
-  const { terms: allTerms } = useTerms({ isEvent: "all" });
-  const { terms: yearTerms } = useTerms({ year: selectedYear, isEvent: "all" }, { enabled: !!selectedYear });
+  const { terms: allTerms, isSuccess: termsLoaded } = useTerms({ isEvent: "all" });
 
   const getDropdownLabel = () => {
     if (showAllocated && showUnallocated) return "Show All Players";
@@ -98,10 +95,14 @@ export default function AcademyHeader({
   }, [selectedProgramId]);
 
   useEffect(() => {
-    if (selectedTermId && selectedTermId !== selectedTerm) {
-      setSelectedTerm(selectedTermId);
-    }
-  }, [selectedTermId]);
+    if (!termsLoaded || lastExternalTermId.current === selectedTermId) return;
+    lastExternalTermId.current = selectedTermId;
+    if (!selectedTermId) return;
+    const term = allTerms.find((item) => item._id === selectedTermId);
+    if (!term) return;
+    setSelectedTerm(term._id);
+    setSelectedYear(String(term.year));
+  }, [selectedTermId, allTerms, termsLoaded]);
 
   useEffect(() => {
     if (selectedYearProp && selectedYearProp !== selectedYear) {
@@ -157,74 +158,48 @@ export default function AcademyHeader({
     }
   }, [selectedCategory, programs, selectedProgramId]);
 
-  // 3. Set available years and initial term from all terms
+  // The first selection follows a requested term, then the active term. Later
+  // year changes must not be reset by the current term's year.
   useEffect(() => {
-    if (allTerms && allTerms.length > 0) {
-      const years = Array.from(new Set(allTerms.map((t: any) => t.year?.toString()).filter(Boolean))).sort() as string[];
-      setAvailableYears(years);
+    if (!termsLoaded || selectedYear) return;
+    const requestedTerm = allTerms.find((term) => term._id === (selectedTermId || state?.termId));
+    const activeCategory = categories.find((category) => category._id === selectedCategory);
+    const initialTerm = requestedTerm || findCurrentTerm(allTerms, { isEvent: !!activeCategory?.isEvent });
+    const year = String(initialTerm?.year ?? getCurrentYearNumber());
+    setSelectedYear(year);
+    onYearChange?.(year);
+  }, [termsLoaded, allTerms, selectedYear, selectedTermId, state?.termId, categories, selectedCategory]);
 
-      let currentTerm = selectedTermId ? allTerms.find((t: any) => t._id === selectedTermId) : null;
-      if (!currentTerm && state?.termId) {
-        currentTerm = allTerms.find((t: any) => t._id === state.termId);
-      }
-      if (!currentTerm && !selectedTermId) {
-        currentTerm = findCurrentTerm(allTerms);
-      }
-
-      if (currentTerm && !selectedTerm) {
-        setSelectedYear(currentTerm.year?.toString() || "");
-        setSelectedTerm(currentTerm._id);
-        onTermChange?.(currentTerm._id);
-      }
-    }
-  }, [allTerms, selectedTermId]);
-
-  // Sync terms for year
+  // Keep the term within the selected year and category. An empty year remains
+  // selected so admins can create its first term in Term Settings.
   useEffect(() => {
-    if (yearTerms) {
-      setTerms(yearTerms);
-    }
-  }, [yearTerms]);
+    if (!termsLoaded || !selectedYear || !selectedCategory) return;
+    const activeCategory = categories.find((category) => category._id === selectedCategory);
+    const matchingTerms = allTerms.filter((term) =>
+      String(term.year) === selectedYear && !!term.isEvent === !!activeCategory?.isEvent
+    );
+    if (matchingTerms.some((term) => term._id === selectedTerm)) return;
+    const requestedTerm = matchingTerms.find((term) => term._id === (selectedTermId || state?.termId));
+    const nextTerm = requestedTerm || findCurrentTerm(matchingTerms);
+    const nextTermId = nextTerm?._id || "";
+    setSelectedTerm(nextTermId);
+    if (selectedTermId !== nextTermId) onTermChange?.(nextTermId);
+  }, [termsLoaded, allTerms, categories, selectedCategory, selectedYear, selectedTerm, selectedTermId, state?.termId]);
 
-  // 4. Update initial term selection when categories or terms are loaded
-  useEffect(() => {
-    if (categories.length === 0 || terms.length === 0 || !selectedCategory) return;
+  const uniqueYears = useMemo(() => {
+    const currentYear = getCurrentYearNumber();
+    const years = new Set<string>(allTerms.map((term) => String(term.year)).filter(Boolean));
+    for (let year = currentYear - 1; year <= currentYear + 5; year += 1) years.add(String(year));
+    if (selectedYear) years.add(selectedYear);
+    return Array.from(years).sort((a, b) => Number(a) - Number(b));
+  }, [allTerms, selectedYear]);
 
-    const activeCat = categories.find((c: any) => c._id === selectedCategory);
-    const activeIsEvent = activeCat ? !!activeCat.isEvent : false;
-
-    // Check if current selection already satisfies the isEvent filter
-    if (selectedTerm) {
-      const match = terms.find((t: any) => t._id === selectedTerm);
-      if (match && !!match.isEvent === activeIsEvent) {
-        return;
-      }
-    }
-
-    const matchedTerm = findCurrentTerm(terms, { isEvent: activeIsEvent });
-
-    if (matchedTerm) {
-      if (matchedTerm.year?.toString() !== selectedYear) {
-        setSelectedYear(matchedTerm.year?.toString() || "");
-      }
-      setSelectedTerm(matchedTerm._id);
-      onTermChange?.(matchedTerm._id);
-    } else {
-      setSelectedTerm("");
-      onTermChange?.("");
-    }
-  }, [categories, terms, selectedCategory]);
-
-  const uniqueYears = availableYears.length > 0
-    ? availableYears
-    : Array.from(new Set(terms.map((t) => t.year.toString())));
-
-  // Filter terms by selectedCategory's isEvent flag (year filter is already handled by API)
-  const filteredTerms = terms.filter(t => {
-    const activeCat = categories.find((c: any) => c._id === selectedCategory);
-    const activeIsEvent = activeCat ? !!activeCat.isEvent : false;
-    return !!t.isEvent === activeIsEvent;
-  });
+  const filteredTerms = useMemo(() => {
+    const activeCategory = categories.find((category) => category._id === selectedCategory);
+    return allTerms.filter((term) =>
+      String(term.year) === selectedYear && !!term.isEvent === !!activeCategory?.isEvent
+    );
+  }, [allTerms, categories, selectedCategory, selectedYear]);
 
   return (
     <div className="flex flex-col gap-4 mb-6 xl:flex-row xl:items-center xl:justify-between">
@@ -296,14 +271,13 @@ export default function AcademyHeader({
             onChange={(val) => {
               setSelectedYear(val);
               onYearChange?.(val);
-              const termsForNewYear = terms.filter(t => t.year.toString() === val);
-              if (termsForNewYear.length > 0) {
-                setSelectedTerm(termsForNewYear[0]._id);
-                onTermChange?.(termsForNewYear[0]._id);
-              } else {
-                setSelectedTerm("");
-                onTermChange?.("");
-              }
+              const activeCategory = categories.find((category) => category._id === selectedCategory);
+              const termsForNewYear = allTerms.filter((term) =>
+                String(term.year) === val && !!term.isEvent === !!activeCategory?.isEvent
+              );
+              const nextTermId = findCurrentTerm(termsForNewYear)?._id || "";
+              setSelectedTerm(nextTermId);
+              onTermChange?.(nextTermId);
             }}
             options={uniqueYears.map(year => ({ label: year, value: year }))}
             triggerClassName="h-11 min-h-11 appearance-none flex items-center justify-between w-full text-sm font-semibold text-slate-600 dark:text-slate-400 bg-transparent outline-none cursor-pointer pr-1"
@@ -319,10 +293,10 @@ export default function AcademyHeader({
               onTermChange?.(val);
             }}
             options={
-              filteredTerms.length === 0
-                ? [{ label: "Select Term", value: "" }]
-                : filteredTerms.map(term => ({ label: term.name, value: term._id }))
+              filteredTerms.map(term => ({ label: term.name, value: term._id }))
             }
+            placeholder={selectedYear ? `No terms for ${selectedYear}` : "Select Term"}
+            disabled={!filteredTerms.length}
             triggerClassName="h-11 min-h-11 appearance-none flex items-center justify-between w-full text-sm font-semibold text-slate-600 dark:text-slate-400 bg-transparent outline-none cursor-pointer pr-1"
           />
         </div>
