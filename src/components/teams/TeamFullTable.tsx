@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import apiClient from "../../api/apiClient";
-import { unassignPlayersFromTeam } from "../../api/adminApi";
+import { unassignPlayersFromTeam, updateTeamSessionDay } from "../../api/adminApi";
 import {
   useTeamFullTable,
   useMarkSingleTeamAttendance,
@@ -16,9 +16,11 @@ import PlayerDetailCard from "../players/PlayerDetailCard";
 import AddCoachNoteModal from "../CoachManagement/AddCoachNoteModal";
 import EditPlayerStatsModal from "../players/EditPlayerStatsModal";
 import ConfirmDeleteModal from "../ui/modal/ConfirmDeleteModal";
+import { Modal } from "../ui/modal";
+import Button from "../ui/button/Button";
 import { getPlayerStatusTextClass, StatusIcon, StatusUpdateMenuList } from "../common/StatusColorCode";
 import { AttendanceCellFlag, AttendanceStatusDropdown } from "../common/AttendanceReasonMenu";
-import { Activity } from "lucide-react";
+import { Activity, Ban, CalendarCheck, CheckCircle2, Eye, FileText, MoreVertical } from "lucide-react";
 import { getMediaUrl, getMediaFallback } from "../../utils/media";
 import { sortPlayersByPaymentStatus } from "../../utils/paymentStatus";
 import { chatApi } from "../../services/chatApi";
@@ -83,6 +85,12 @@ export default function TeamFullTable({
     playerName?: string;
   } | null>(null);
   const [attendanceMenuPos, setAttendanceMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [openDayMenu, setOpenDayMenu] = useState<string | null>(null);
+  const [dayMenuPos, setDayMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [selectedDayFilter, setSelectedDayFilter] = useState<string | null>(null);
+  const [dayActionDialog, setDayActionDialog] = useState<{ sessionDate: string; action: "NOTE" | "CANCEL" } | null>(null);
+  const [dayActionText, setDayActionText] = useState("");
+  const [dayActionPending, setDayActionPending] = useState(false);
 
   // Unassign Player Mutation
   const unassignMutation = useMutation({
@@ -206,6 +214,9 @@ export default function TeamFullTable({
 
   const schedule = scheduleData?.data || scheduleData || {};
   const sessions: string[] = schedule.sessions || [];
+  const sessionDetails = schedule.sessionDetails || {};
+  const visibleSessions = selectedDayFilter ? sessions.filter((sessionDate) => sessionDate === selectedDayFilter) : sessions;
+  const isSessionCancelled = (sessionDate: string) => sessionDetails[sessionDate]?.status === "CANCELLED";
   const players: any[] = useMemo(
     () => sortPlayersByPaymentStatus(schedule.players || [], (player: any) => player.paymentStatus || player.status, (player: any) => player.playerName || player.name),
     [schedule.players]
@@ -269,6 +280,10 @@ export default function TeamFullTable({
     playerName?: string
   ) => {
     e.stopPropagation();
+    if (isSessionCancelled(sessionDate)) {
+      toast.error("This team session is cancelled; attendance cannot be changed.");
+      return;
+    }
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const menuWidth = 220;
     const menuHeight = 240;
@@ -304,6 +319,14 @@ export default function TeamFullTable({
   };
 
   const handleMarkAllPresent = (sessionDate: string) => {
+    if (isSessionCancelled(sessionDate)) {
+      toast.error("This team session is cancelled.");
+      return;
+    }
+    if (!players.length) {
+      toast.error("No players are assigned to this team.");
+      return;
+    }
     const records = players.map((p: any) => ({
       player: p.playerId,
       status: "PRESENT",
@@ -314,6 +337,111 @@ export default function TeamFullTable({
       records,
     });
   };
+
+  const handleOpenDayMenu = (sessionDate: string, event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = 190;
+    const estimatedHeight = 220;
+    setDayMenuPos({
+      top: rect.bottom + estimatedHeight > window.innerHeight ? Math.max(8, rect.top - estimatedHeight) : rect.bottom + 4,
+      left: Math.max(8, Math.min(rect.right + 4 - width, window.innerWidth - width - 8)),
+    });
+    setOpenDayMenu((current) => current === sessionDate ? null : sessionDate);
+  };
+
+  const openDayActionDialog = (sessionDate: string, action: "NOTE" | "CANCEL") => {
+    const details = sessionDetails[sessionDate] || {};
+    setDayActionDialog({ sessionDate, action });
+    setDayActionText(action === "NOTE" ? details.note || "" : details.cancellationReason || "");
+    setOpenDayMenu(null);
+  };
+
+  const notifyTeamParents = async (sessionDate: string, action: "CANCEL" | "RESTORE", reason?: string) => {
+    const dateLabel = formatDateOnly(sessionDate, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    const text = action === "CANCEL"
+      ? `${teamName} session cancelled for ${dateLabel}. Reason: ${reason}`
+      : `${teamName} session on ${dateLabel} is back on as scheduled.`;
+    await chatApi.broadcastToTeam(teamId, text);
+  };
+
+  const handleSaveDayAction = async () => {
+    if (!dayActionDialog) return;
+    const { sessionDate, action } = dayActionDialog;
+    const text = dayActionText.trim();
+    if (action === "CANCEL" && !text) {
+      toast.error("Add a cancellation reason so families know why this session is cancelled.");
+      return;
+    }
+    setDayActionPending(true);
+    try {
+      await updateTeamSessionDay(teamId, {
+        sessionDate,
+        action,
+        ...(leagueId ? { leagueId } : {}),
+        ...(action === "NOTE" ? { note: text } : { reason: text }),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["teamFullTable", teamId] });
+      setDayActionDialog(null);
+      if (action === "CANCEL") {
+        try {
+          await notifyTeamParents(sessionDate, "CANCEL", text);
+          toast.success("Team session cancelled; parents were notified in team chat.");
+        } catch (error: any) {
+          if (!error?._handled) toast.error(`Team session cancelled, but the parent notification could not be sent: ${error?.response?.data?.message || error.message || "Please retry from team chat."}`);
+        }
+      } else {
+        toast.success("Admin note saved for this team session.");
+      }
+    } catch (error: any) {
+      if (!error?._handled) toast.error(error?.response?.data?.message || error.message || "Unable to update this team session.");
+    } finally {
+      setDayActionPending(false);
+    }
+  };
+
+  const handleRestoreTeamSession = async (sessionDate: string) => {
+    setOpenDayMenu(null);
+    try {
+      await updateTeamSessionDay(teamId, {
+        sessionDate,
+        action: "RESTORE",
+        ...(leagueId ? { leagueId } : {}),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["teamFullTable", teamId] });
+      try {
+        await notifyTeamParents(sessionDate, "RESTORE");
+        toast.success("Team session restored; parents were notified in team chat.");
+      } catch (error: any) {
+        if (!error?._handled) toast.error(`Team session restored, but the parent notification could not be sent: ${error?.response?.data?.message || error.message || "Please retry from team chat."}`);
+      }
+    } catch (error: any) {
+      if (!error?._handled) toast.error(error?.response?.data?.message || error.message || "Unable to restore this team session.");
+    }
+  };
+
+  useEffect(() => {
+    if (!openDayMenu) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      const menu = document.getElementById("portal-team-day-menu");
+      const trigger = document.getElementById(`team-day-trigger-${openDayMenu}`);
+      if (menu && !menu.contains(event.target as Node) && trigger && !trigger.contains(event.target as Node)) {
+        setOpenDayMenu(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenDayMenu(null);
+    };
+    const closeOnScroll = () => setOpenDayMenu(null);
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("scroll", closeOnScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("scroll", closeOnScroll, true);
+    };
+  }, [openDayMenu]);
 
   const getImageUrl = (path: string | undefined | null) => {
     return getMediaUrl(path) || null;
@@ -411,6 +539,14 @@ export default function TeamFullTable({
             </div>
           ) : (
             <div className="overflow-x-auto custom-scrollbar">
+              {selectedDayFilter && (
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-blue-50/70 px-3 py-2 text-xs dark:border-slate-800 dark:bg-blue-950/20">
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    Showing attendance for {formatDateOnly(selectedDayFilter, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                  </span>
+                  <button type="button" onClick={() => setSelectedDayFilter(null)} className="font-bold text-[#0047FF] hover:underline">Show all days</button>
+                </div>
+              )}
               <table className="w-full text-left border-separate border-spacing-0 text-[11px]">
                 <thead>
                   <tr className="border-b border-slate-100 dark:border-slate-800 text-[9px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/80 dark:bg-slate-900/80">
@@ -435,43 +571,40 @@ export default function TeamFullTable({
                     </th>
 
                     {/* Session Columns */}
-                    {sessions.map((sessionDate: string, idx: number) => {
+                    {visibleSessions.map((sessionDate: string, idx: number) => {
                       const formatted = formatDateLabel(sessionDate);
+                      const details = sessionDetails[sessionDate] || {};
+                      const isCancelled = details.status === "CANCELLED";
+                      const hasAdminNote = Boolean(details.note);
                       return (
                         <th
                           key={sessionDate}
-                          className="py-2.5 px-1.5 text-center min-w-[55px] font-semibold border-l border-slate-100 dark:border-slate-800/40 relative group"
+                          title={isCancelled ? `Team session cancelled: ${details.cancellationReason || "No reason provided"}` : hasAdminNote ? `Admin note: ${details.note}` : undefined}
+                          className={`py-2.5 px-1.5 text-center min-w-[55px] font-semibold border-l relative ${isCancelled ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300" : "border-slate-100 dark:border-slate-800/40"}`}
                         >
+                          {can("attendance", "edit") && (
+                            <button
+                              id={`team-day-trigger-${sessionDate}`}
+                              type="button"
+                              onClick={(event) => handleOpenDayMenu(sessionDate, event)}
+                              aria-label={`Actions for ${formatted.day} ${formatted.date}`}
+                              aria-expanded={openDayMenu === sessionDate}
+                              className="absolute right-0.5 top-0.5 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white"
+                            >
+                              <MoreVertical size={13} />
+                            </button>
+                          )}
                           <div className="flex flex-col items-center">
                             <span className="text-[8px] text-slate-400 font-bold">
-                              {idx + 1}
+                              {sessions.indexOf(sessionDate) + 1}
                             </span>
-                            <span className="text-slate-500">{formatted.day}</span>
-                            <span className="text-slate-700 dark:text-slate-200 font-bold">
+                            <span className={isCancelled ? "text-rose-700 dark:text-rose-300" : "text-slate-500"}>{formatted.day}</span>
+                            <span className={`font-bold ${isCancelled ? "text-rose-700 dark:text-rose-300" : "text-slate-700 dark:text-slate-200"}`}>
                               {formatted.date}
                             </span>
                           </div>
-
-                          {/* Hover button: Mark All Present */}
-                          {can("attendance", "edit") && <button
-                            onClick={() => handleMarkAllPresent(sessionDate)}
-                            className="absolute inset-0 bg-white/95 dark:bg-slate-900/95 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[#0047FF] font-bold text-[10px]"
-                            title="Mark all present"
-                          >
-                            <svg
-                              className="w-4 h-4 text-[#0047FF]"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2.5}
-                                d="M5 13l4 4L19 7"
-                              />
-                            </svg>
-                          </button>}
+                          {isCancelled && <span className="mt-1 block text-[7px] font-black uppercase tracking-wide text-rose-600 dark:text-rose-300">Cancelled</span>}
+                          {hasAdminNote && <FileText size={10} className="mx-auto mt-1 text-amber-500" aria-label="Admin note saved" />}
                         </th>
                       );
                     })}
@@ -561,7 +694,9 @@ export default function TeamFullTable({
                         </td>
 
                         {/* Session Attendance Cells */}
-                        {sessions.map((sessionDate: string) => {
+                        {visibleSessions.map((sessionDate: string) => {
+                          const details = sessionDetails[sessionDate] || {};
+                          const isCancelled = details.status === "CANCELLED";
                           const currentStatus =
                             row.attendance?.[sessionDate] || "NOT_MARKED";
                           const attDetail = row.attendanceDetails?.[sessionDate];
@@ -571,7 +706,8 @@ export default function TeamFullTable({
                           return (
                             <td
                               key={sessionDate}
-                              onClick={can("attendance", "edit") ? (e) =>
+                              title={isCancelled ? `Team session cancelled: ${details.cancellationReason || "No reason provided"}` : undefined}
+                              onClick={can("attendance", "edit") && !isCancelled ? (e) =>
                                 handleToggleAttendance(
                                   row.playerId,
                                   sessionDate,
@@ -582,10 +718,16 @@ export default function TeamFullTable({
                                   row.playerName || row.name
                                 )
                               : undefined}
-                              className={`relative py-2 px-1.5 text-center border-l border-slate-50 dark:border-slate-800/40 transition-colors group/cell ${can("attendance", "edit") ? "cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" : ""}`}
+                              className={`relative py-2 px-1.5 text-center border-l transition-colors group/cell ${isCancelled ? "border-rose-100 bg-rose-50/70 dark:border-rose-900/30 dark:bg-rose-950/20" : "border-slate-50 dark:border-slate-800/40"} ${can("attendance", "edit") && !isCancelled ? "cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" : ""}`}
                             >
-                              <AttendanceCellFlag reason={reason} markedByParent={markedByParent} status={currentStatus} />
-                              {renderStatusIcon(currentStatus)}
+                              {isCancelled ? (
+                                <span className="text-[9px] font-bold text-rose-600 dark:text-rose-300">Cancelled</span>
+                              ) : (
+                                <>
+                                  <AttendanceCellFlag reason={reason} markedByParent={markedByParent} status={currentStatus} />
+                                  {renderStatusIcon(currentStatus)}
+                                </>
+                              )}
                             </td>
                           );
                         })}
@@ -765,7 +907,7 @@ export default function TeamFullTable({
                   ) : (
                     <tr>
                       <td
-                        colSpan={sessions.length + 6}
+                        colSpan={visibleSessions.length + 6}
                         className="py-12 text-center text-slate-400 font-bold"
                       >
                         No players or session records found for selected filters.
@@ -778,6 +920,119 @@ export default function TeamFullTable({
           )}
         </div>
       )}
+
+      {can("attendance", "edit") && openDayMenu && dayMenuPos && createPortal(
+        <div
+          id="portal-team-day-menu"
+          style={{ position: "fixed", top: `${dayMenuPos.top}px`, left: `${dayMenuPos.left}px` }}
+          className="z-[99999] w-[190px] border border-slate-200 bg-white py-1 shadow-2xl dark:border-slate-700 dark:bg-slate-800"
+        >
+          <div className="border-b border-slate-100 px-3 py-2 dark:border-slate-700">
+            <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-400">Day actions</span>
+            <span className="block text-xs font-bold text-slate-800 dark:text-white">
+              {formatDateOnly(openDayMenu, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            </span>
+            {isSessionCancelled(openDayMenu) && (
+              <div className="mt-1 rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-[10px] leading-snug text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+                <span className="font-bold">Cancellation reason</span>
+                <p className="mt-0.5 break-words">{sessionDetails[openDayMenu]?.cancellationReason || "No reason was recorded."}</p>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedDayFilter((current) => current === openDayMenu ? null : openDayMenu);
+              setOpenDayMenu(null);
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            <Eye size={14} className="text-[#0047FF]" />
+            {selectedDayFilter === openDayMenu ? "Show all days" : "View only this day"}
+          </button>
+          <button
+            type="button"
+            disabled={!players.length || isSessionCancelled(openDayMenu) || markBulkMutation.isPending}
+            onClick={() => {
+              const date = openDayMenu;
+              setOpenDayMenu(null);
+              handleMarkAllPresent(date);
+            }}
+            className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            <CheckCircle2 size={14} className="text-emerald-500" />
+            {markBulkMutation.isPending ? "Marking present..." : "Mark all present"}
+          </button>
+          <button
+            type="button"
+            onClick={() => openDayActionDialog(openDayMenu, "NOTE")}
+            className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            <FileText size={14} className="text-amber-500" />
+            {sessionDetails[openDayMenu]?.note ? "Edit admin note" : "Add admin note"}
+          </button>
+          {isSessionCancelled(openDayMenu) ? (
+            <button
+              type="button"
+              onClick={() => handleRestoreTeamSession(openDayMenu)}
+              className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-emerald-700 hover:bg-emerald-50 dark:border-slate-700 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+            >
+              <CalendarCheck size={14} /> Restore team session
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => openDayActionDialog(openDayMenu, "CANCEL")}
+              className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-slate-700 dark:text-rose-300 dark:hover:bg-rose-950/30"
+            >
+              <Ban size={14} /> Cancel team session
+            </button>
+          )}
+        </div>,
+        document.body
+      )}
+
+      <Modal
+        isOpen={Boolean(dayActionDialog)}
+        onClose={() => { if (!dayActionPending) setDayActionDialog(null); }}
+        className="max-w-md p-6"
+      >
+        <div className="pr-8">
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+            {dayActionDialog?.action === "CANCEL" ? "Cancel team session" : "Admin note"}
+          </h3>
+          {dayActionDialog && <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+            {formatDateOnly(dayActionDialog.sessionDate, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+          </p>}
+        </div>
+        <label htmlFor="team-day-action-text" className="mt-5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+          {dayActionDialog?.action === "CANCEL" ? "Cancellation reason (required)" : "Staff-only note"}
+        </label>
+        <textarea
+          id="team-day-action-text"
+          value={dayActionText}
+          onChange={(event) => setDayActionText(event.target.value)}
+          rows={4}
+          maxLength={dayActionDialog?.action === "CANCEL" ? 500 : 1000}
+          required={dayActionDialog?.action === "CANCEL"}
+          placeholder={dayActionDialog?.action === "CANCEL" ? "For example: Team session is cancelled today due to severe weather." : "Add an internal note for this team session..."}
+          className="mt-2 w-full resize-none border border-slate-200 bg-white p-3 text-sm text-slate-900 outline-none focus:border-[#0047FF] dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+        />
+        <div className="mt-1 flex justify-between gap-3 text-[10px] text-slate-400">
+          <span>{dayActionDialog?.action === "CANCEL" ? "Parents of team players will receive a team chat message." : "Only staff can see this note."}</span>
+          <span className="shrink-0">{dayActionText.length}/{dayActionDialog?.action === "CANCEL" ? 500 : 1000}</span>
+        </div>
+        <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-700">
+          <Button variant="outline" onClick={() => setDayActionDialog(null)} disabled={dayActionPending}>Cancel</Button>
+          <Button
+            onClick={handleSaveDayAction}
+            disabled={dayActionPending || (dayActionDialog?.action === "CANCEL" && !dayActionText.trim())}
+            className={dayActionDialog?.action === "CANCEL" ? "bg-rose-600 hover:bg-rose-700 disabled:bg-rose-600/40" : ""}
+          >
+            {dayActionPending ? "Saving..." : dayActionDialog?.action === "CANCEL" ? "Cancel session" : "Save note"}
+          </Button>
+        </div>
+      </Modal>
 
       {/* Player Detail Card Modal */}
       {selectedPlayer && (

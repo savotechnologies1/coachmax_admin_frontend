@@ -40,6 +40,8 @@ export interface CampSessionItem {
   capacity?: number | null;
   registeredCount?: number;
   isAvailable: boolean;
+  isCancelled?: boolean;
+  cancellationReason?: string;
 }
 
 interface HolidayCampRegistrationModalProps {
@@ -135,6 +137,15 @@ export const HolidayCampRegistrationModal: React.FC<HolidayCampRegistrationModal
   const [loading, setLoading] = useState(false);
   const [completedRegistration, setCompletedRegistration] = useState<any>(null);
 
+  useEffect(() => {
+    setSelectedSessionMap((previous) => Object.fromEntries(
+      Object.entries(previous).filter(([, sessionId]) => {
+        const session = sessions.find((item) => item._id === sessionId);
+        return Boolean(session?.isAvailable && !session.isCancelled);
+      })
+    ));
+  }, [sessions]);
+
   // Group sessions by actual Monday-to-Sunday calendar weeks.
   const groupedByWeek = useMemo(() => {
     const dateMap = new Map<string, { dateStr: string; dayLabel: string; dayOfWeek: string; sessions: CampSessionItem[] }>();
@@ -202,7 +213,7 @@ export const HolidayCampRegistrationModal: React.FC<HolidayCampRegistrationModal
   const handleSelectAllInWeek = (dates: { dateStr: string; sessions: CampSessionItem[] }[]) => {
     setSelectedSessionMap((prev) => {
       const next = { ...prev };
-      const selectableDates = dates.filter((d) => d.sessions.some((session) => session.isAvailable));
+      const selectableDates = dates.filter((d) => d.sessions.some((session) => session.isAvailable && !session.isCancelled));
       if (selectableDates.length === 0) return next;
       // If all available dates in week already selected, deselect; otherwise select full day (or first session)
       const allSelected = selectableDates.every((d) => next[d.dateStr]);
@@ -210,8 +221,8 @@ export const HolidayCampRegistrationModal: React.FC<HolidayCampRegistrationModal
         selectableDates.forEach((d) => delete next[d.dateStr]);
       } else {
         selectableDates.forEach((d) => {
-          const preferred = d.sessions.find((s) => s.sessionType === "FULL_DAY" && s.isAvailable)
-            || d.sessions.find((s) => s.isAvailable);
+          const preferred = d.sessions.find((s) => s.sessionType === "FULL_DAY" && s.isAvailable && !s.isCancelled)
+            || d.sessions.find((s) => s.isAvailable && !s.isCancelled);
           if (preferred) {
             next[d.dateStr] = preferred._id;
           }
@@ -239,6 +250,10 @@ export const HolidayCampRegistrationModal: React.FC<HolidayCampRegistrationModal
 
     if (selectedSessionsList.length === 0) {
       toast.error("Please select at least one camp date/session");
+      return;
+    }
+    if (selectedSessionsList.some((session) => !session.isAvailable || session.isCancelled)) {
+      toast.error("One selected camp day has been cancelled or is no longer available. Choose another day.");
       return;
     }
 
@@ -392,8 +407,9 @@ export const HolidayCampRegistrationModal: React.FC<HolidayCampRegistrationModal
                     {week.dates.map((d) => {
                       const fullDaySession = d.sessions.find((s) => s.sessionType === "FULL_DAY");
                       const halfDaySession = d.sessions.find((s) => s.sessionType === "HALF_DAY");
-                      const availableSessions = d.sessions.filter((s) => s.isAvailable);
+                      const availableSessions = d.sessions.filter((s) => s.isAvailable && !s.isCancelled);
                       const isAvailable = availableSessions.length > 0;
+                      const isCancelled = d.sessions.some((s) => s.isCancelled);
                       const isDateSelected = Boolean(selectedSessionMap[d.dateStr]);
 
                       return (
@@ -410,8 +426,8 @@ export const HolidayCampRegistrationModal: React.FC<HolidayCampRegistrationModal
                                 if (isDateSelected) {
                                   handleSelectSession(d.dateStr, selectedSessionMap[d.dateStr]);
                                 } else {
-                                  const pref = (fullDaySession?.isAvailable ? fullDaySession : undefined)
-                                    || (halfDaySession?.isAvailable ? halfDaySession : undefined)
+                                  const pref = (fullDaySession?.isAvailable && !fullDaySession.isCancelled ? fullDaySession : undefined)
+                                    || (halfDaySession?.isAvailable && !halfDaySession.isCancelled ? halfDaySession : undefined)
                                     || availableSessions[0];
                                   if (pref) handleSelectSession(d.dateStr, pref._id);
                                 }
@@ -422,15 +438,15 @@ export const HolidayCampRegistrationModal: React.FC<HolidayCampRegistrationModal
                               <span className="font-bold text-xs text-gray-800 dark:text-white block">
                                 {d.dayLabel}
                               </span>
-                              <span className="text-[10px] text-gray-400">
-                                {isAvailable ? `${availableSessions.length} options offered` : "Unavailable"}
+                              <span className={`text-[10px] ${isCancelled ? "font-bold text-red-600" : "text-gray-400"}`}>
+                                {isCancelled ? "Cancelled" : isAvailable ? `${availableSessions.length} options offered` : "Unavailable"}
                               </span>
                             </div>
                           </div>
 
                           {/* Sessions Buttons Grid (matching the two blue buttons in screenshot) */}
                           <div className="flex items-center gap-2">
-                            {halfDaySession && halfDaySession.isAvailable && (
+                            {halfDaySession && halfDaySession.isAvailable && !halfDaySession.isCancelled && (
                               <button
                                 type="button"
                                 onClick={() => handleSelectSession(d.dateStr, halfDaySession._id)}
@@ -445,7 +461,7 @@ export const HolidayCampRegistrationModal: React.FC<HolidayCampRegistrationModal
                               </button>
                             )}
 
-                            {fullDaySession && fullDaySession.isAvailable && (
+                            {fullDaySession && fullDaySession.isAvailable && !fullDaySession.isCancelled && (
                               <button
                                 type="button"
                                 onClick={() => handleSelectSession(d.dateStr, fullDaySession._id)}
@@ -459,7 +475,7 @@ export const HolidayCampRegistrationModal: React.FC<HolidayCampRegistrationModal
                                 <span className="text-sm font-extrabold">${fullDaySession.fee}</span>
                               </button>
                             )}
-                            {!isAvailable && <span className="text-[10px] text-slate-500">This day is unavailable.</span>}
+                            {!isAvailable && <span className="text-[10px] text-slate-500">{isCancelled ? "This day has been cancelled." : "This day is unavailable."}</span>}
                           </div>
                         </div>
                       );

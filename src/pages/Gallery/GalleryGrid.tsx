@@ -20,7 +20,7 @@ const GalleryGrid = () => {
   const galleryItems = [
    { id: 1, title: "Training Drills", category: "Training", image: "https://images.unsplash.com/photo-1574629810360-7efbbe195018?q=80&w=400&auto=format&fit=crop", aspectRatio: "aspect-video" },
    { id: 2, title: "Match Day Pride", category: "Matches", image: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?q=80&w=400&auto=format&fit=crop", aspectRatio: "aspect-[3/4]" },
-   { id: 3, title: "League Prep", category: "Training", image: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?q=80&w=400&auto=format&fit=crop", aspectRatio: "aspect-[4/3]" },
+   { id: 3, title: "Tournament Prep", category: "Training", image: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?q=80&w=400&auto=format&fit=crop", aspectRatio: "aspect-[4/3]" },
    { id: 4, title: "Youth Camp", category: "Events", image: "https://images.unsplash.com/photo-1510566337590-2fc1f21d0faa?q=80&w=400&auto=format&fit=crop", aspectRatio: "aspect-square" },
    { id: 5, title: "Penalty Practice", category: "Training", image: "https://images.unsplash.com/photo-1551280857-2b9bbe52cf5a?q=80&w=400&auto=format&fit=crop", aspectRatio: "aspect-video" },
    { id: 6, title: "Team Celebration", category: "Matches", image: "https://images.unsplash.com/photo-1517466787929-bc90951d0974?q=80&w=400&auto=format&fit=crop", aspectRatio: "aspect-[9/16]" },

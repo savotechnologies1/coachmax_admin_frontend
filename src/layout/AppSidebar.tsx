@@ -5,7 +5,7 @@ import { ChevronDownIcon, HorizontaLDots } from "../icons";
 import { useSidebar } from "../context/SidebarContext";
 import {
   Activity, CalendarDays, ClipboardList, Copy, CreditCard, LayoutDashboard,
-  MessageCircle, Newspaper, Settings2, Shield, ShoppingBag, Tag, Trophy, UserRound,
+  MessageCircle, Newspaper, Settings2, ShoppingBag, Tag, Trophy, UserRound,
   Users, UsersRound,
 } from "lucide-react";
 import { useCategories } from "../hooks/useCategories";
@@ -200,14 +200,9 @@ const AppSidebar: React.FC = () => {
           badgeCount: badges.eventRegistrations || 0,
         },
         {
-          name: "Leagues",
+          name: "Tournaments",
           icon: navIcon(Trophy),
           path: "/leagues"
-        },
-        {
-          name: "Teams Management",
-          icon: navIcon(Shield),
-          path: "/teams"
         },
         {
           name: "Communication",
@@ -215,6 +210,7 @@ const AppSidebar: React.FC = () => {
           subItems: [
             { name: "Direct & Group Chat", path: "/communication" },
             { name: "Class Broadcast Announcements", path: "/announcements" },
+            { name: "Bulk Email", path: "/email-campaigns" },
           ],
         },
         {
@@ -292,8 +288,8 @@ const AppSidebar: React.FC = () => {
     items: section.items.flatMap((item): NavItem[] => {
       const moduleByName: Record<string, AccessModule> = {
         Dashboard: "dashboard", "Players Management": "players", Programs: "programs",
-        Classes: "classes", Events: "events", Leagues: "leagues",
-        "Teams Management": "teams", Communication: "communication", Finance: "payments",
+        Classes: "classes", Events: "events", Tournaments: "leagues",
+        Communication: "communication", Finance: "payments",
         Store: "store", News: "news", "Coaching Management": "programs",
         "Coach Manage": "coaches", Sponsors: "sponsors", "Audit Logs": "audit",
         "Clone Term": "terms",
@@ -321,8 +317,8 @@ const AppSidebar: React.FC = () => {
         can("payments", "read")) }];
       if (item.name === "Store") return [{ ...item, subItems: item.subItems?.filter((entry) =>
         entry.path === "/orders" ? can("orders", "read") : can("store", "read")) }];
-      if (item.name === "Communication" && scope("communication") === "ASSIGNED") return [{ ...item, subItems: item.subItems?.filter((entry) =>
-        entry.path !== "/announcements" || (can("classes", "read") && can("communication", "create"))).map((entry) =>
+      if (item.name === "Communication") return [{ ...item, subItems: item.subItems?.filter((entry) =>
+        entry.path !== "/email-campaigns" && (scope("communication") !== "ASSIGNED" || entry.path !== "/announcements" || (can("classes", "read") && can("communication", "create")))).map((entry) =>
         entry.path === "/communication" ? { ...entry, path: "/messages" } : entry) }];
       if (item.name === "Classes") return [{ ...item, path: "/classes" }];
       if (item.name === "Coach Manage" && scope("coaches") !== "ALL") return [];

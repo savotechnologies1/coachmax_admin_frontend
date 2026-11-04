@@ -20,7 +20,8 @@ import {
   ChevronDown,
   ChevronUp,
   Edit2,
-  Trash2
+  Trash2,
+  Mail
 } from "lucide-react";
 import Badge from "../ui/badge/Badge";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table";
@@ -35,6 +36,8 @@ import { useSidebarBadges } from "../../hooks/useSidebarBadges";
 import { formatDateOnly, formatDateTime, toDateOnly } from "../../utils/dateTime";
 import { sortPlayersByPaymentStatus } from "../../utils/paymentStatus";
 import ConfirmDeleteModal from "../ui/modal/ConfirmDeleteModal";
+import PlayerDetailCard from "../players/PlayerDetailCard";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 interface EventStats {
   totalSlots: number;
@@ -83,6 +86,7 @@ interface Participant {
 }
 
 const EventDetailsComp: React.FC = () => {
+  const { can } = useCoachAccess();
   const { markItemAsRead } = useSidebarBadges();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -100,6 +104,7 @@ const EventDetailsComp: React.FC = () => {
   const [attendanceRefreshKey, setAttendanceRefreshKey] = useState(0);
   const [isOverviewExpanded, setIsOverviewExpanded] = useState(false);
   const [registrationToRemove, setRegistrationToRemove] = useState<Participant | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<any | null>(null);
   const [isRemovingPlayer, setIsRemovingPlayer] = useState(false);
   const [isDeleteEventOpen, setIsDeleteEventOpen] = useState(false);
   const [isDeletingEvent, setIsDeletingEvent] = useState(false);
@@ -130,9 +135,9 @@ const EventDetailsComp: React.FC = () => {
     }
   };
 
-  const fetchDetails = useCallback(async () => {
+  const fetchDetails = useCallback(async (silent = false) => {
     if (!id) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const res = await getEventDetails(id);
       if (res.success) {
@@ -145,7 +150,7 @@ const EventDetailsComp: React.FC = () => {
       console.error(err);
       toast.error("Failed to fetch event details.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [id]);
 
@@ -448,14 +453,28 @@ const EventDetailsComp: React.FC = () => {
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setIsRegModalOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#031549] text-white hover:bg-brand-600 text-xs font-bold transition-all shadow-sm"
-          >
-            <UserPlus size={14} />
-            Add Registration
-          </button>
+          <div className="flex items-center gap-2">
+            {can("communication", "create") && can("parents", "read") && (
+              <button
+                type="button"
+                onClick={() => {
+                  const params = new URLSearchParams({ audienceType: "EVENT", audienceId: event._id });
+                  navigate(`/email-campaigns?${params.toString()}`);
+                }}
+                className="flex items-center gap-1.5 border border-brand-200 bg-brand-50 px-4 py-2 text-xs font-bold text-brand-700 transition-colors hover:bg-brand-600 hover:text-white dark:border-brand-900 dark:bg-brand-950/30 dark:text-brand-300"
+              >
+                <Mail size={14} /> Email
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsRegModalOpen(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#031549] text-white hover:bg-brand-600 text-xs font-bold transition-all shadow-sm"
+            >
+              <UserPlus size={14} />
+              Add Registration
+            </button>
+          </div>
         </div>
 
         {activeTab === "attendance" && (
@@ -466,6 +485,10 @@ const EventDetailsComp: React.FC = () => {
               void fetchDetails();
               void fetchParticipants();
               setAttendanceRefreshKey((current) => current + 1);
+            }}
+            onSessionChange={() => {
+              void fetchDetails(true);
+              void fetchParticipants();
             }}
           />
         )}
@@ -559,9 +582,17 @@ const EventDetailsComp: React.FC = () => {
                           </div>
                         </div>
                         <div>
-                          <span className="block text-sm font-bold  text-gray-800 dark:text-white tracking-tight group-hover:text-brand-500 transition-colors cursor-pointer capitalize">
+                          <button
+                            type="button"
+                            onClick={(click) => {
+                              click.stopPropagation();
+                              markItemAsRead("eventRegistrations", p._id);
+                              setSelectedPlayer({ ...p.user, _id: p.user._id, profileImage: p.user.profile, paymentStatus: p.paymentStatus });
+                            }}
+                            className="block text-left text-sm font-bold text-gray-800 dark:text-white tracking-tight group-hover:text-brand-500 transition-colors cursor-pointer capitalize"
+                          >
                             {p.user.fullName}
-                          </span>
+                          </button>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] font-bold text-gray-400 truncate max-w-[120px]">{p.user.email}</span>
                             <span className="w-1 h-1 bg-gray-300 dark:bg-gray-700 rounded-full" />
@@ -681,6 +712,13 @@ const EventDetailsComp: React.FC = () => {
         title="Delete event?"
         message="The event will be removed from active event lists. Active registrations will be cancelled. Attendance, paid invoices, and chat history will be kept for records."
       />
+      {selectedPlayer && (
+        <PlayerDetailCard
+          player={selectedPlayer}
+          contextYear={Number(toDateOnly(event?.startDate).slice(0, 4)) || undefined}
+          onClose={() => setSelectedPlayer(null)}
+        />
+      )}
     </div>
   );
 };

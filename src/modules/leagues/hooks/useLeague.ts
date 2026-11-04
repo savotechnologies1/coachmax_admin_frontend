@@ -26,10 +26,10 @@ export const useUpdateLeague = (leagueId: string) => {
       ["teams", "team", "invoices"].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
       queryClient.invalidateQueries({ queryKey: ["league", leagueId] });
       queryClient.invalidateQueries({ queryKey: ["leagues"] });
-      toast.success("League details updated successfully");
+      toast.success("Tournament details updated successfully");
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.message || err?.message || "Failed to update league");
+      toast.error(err?.response?.data?.message || err?.message || "Failed to update tournament");
     },
   });
 };

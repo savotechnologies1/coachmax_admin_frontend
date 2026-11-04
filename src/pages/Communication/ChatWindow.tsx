@@ -95,7 +95,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ roomId, onClose }) => {
   const partnerSubtitle = room?.isPartnerOnline ? "🟢 Online now" : "Offline";
   const partnerAccountRole = String((partner?.user as any)?.role || "").toUpperCase();
   const partnerRole = room?.type === "BROADCAST"
-    ? (room.eventId || room.eventSessionDate ? "Event Day" : room.leagueId ? "League Chat" : room.teamId ? "Team Chat" : "Class Chat")
+    ? (room.eventId || room.eventSessionDate ? "Event Day" : room.leagueId ? "Tournament Chat" : room.teamId ? "Team Chat" : "Class Chat")
     : partnerAccountRole === "SUPER_ADMIN" ? "Super Admin"
       : partnerAccountRole === "ADMIN" ? "Admin"
         : partnerAccountRole === "COACH" ? "Coach"

@@ -5,15 +5,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Button from "../ui/button/Button";
 import { useCoachAccess } from "../../hooks/useCoachAccess";
 import { Modal } from "../ui/modal";
-import { getAllLeagues, createLeague, updateLeague, deleteLeague, getAllTeams, getAllTerms } from "../../api/adminApi";
+import { getAllLeagues, createLeague, updateLeague, deleteLeague, getAllTeams, getAllTerms, createTeam, getAllCoaches, getAvailablePlayers } from "../../api/adminApi";
 import { toast } from "react-hot-toast";
 import { normalizeUploadImage, validateUploadFile } from "../../utils/fileValidation";
 import ImageCropModal from "../common/ImageCropModal";
 import { getMediaUrl } from "../../utils/media";
-import { Trophy, Calendar, Image as ImageIcon, Users, Search, X, Settings2, Zap } from "lucide-react";
+import { Trophy, Calendar, Image as ImageIcon, Users, Search, X, Settings2, Zap, Plus, Clock3, Eye, Mail, Pencil, Trash2 } from "lucide-react";
 import ConfirmDeleteModal from "../ui/modal/ConfirmDeleteModal";
 import { useTerms } from "../../hooks/useTerms";
-import { findCurrentTerm } from "../../hooks/useCurrentTerm";
 import { addDateOnlyDays, formatDateOnly, todayDateOnly, toDateOnly } from "../../utils/dateTime";
 import { chatApi } from "../../services/chatApi";
 import ChatActionButton from "../chat/ChatActionButton";
@@ -21,18 +20,19 @@ import FormHeader from "../form/FormHeader";
 import FormStepIndicator from "../form/FormStepIndicator";
 import FormActions from "../form/FormActions";
 import { requiredText, validateWithSchema, type FormErrors } from "../../utils/formValidation";
+import { sortPlayersByPaymentStatus } from "../../utils/paymentStatus";
 import { z } from "zod";
 
 const leagueIdentitySchema = z.object({
-  name: requiredText("League name"),
-  term: requiredText("Academic term"),
-  type: requiredText("League type"),
+  name: requiredText("Tournament name"),
+  term: z.string(),
+  type: requiredText("Tournament type"),
 });
 
 const leagueRulesSchema = z.object({
   fee: z.preprocess(
     (value) => value === "" || value === null || value === undefined ? Number.NaN : Number(value),
-    z.number().finite("Enter a valid league fee.").min(0, "League fee must be 0 or more."),
+    z.number().finite("Enter a valid tournament fee.").min(0, "Tournament fee must be 0 or more."),
   ),
   rounds: z.preprocess(
     (value) => value === "" || value === null || value === undefined ? Number.NaN : Number(value),
@@ -92,6 +92,7 @@ const LeagueManagement: React.FC = () => {
     new Date().getFullYear().toString()
   );
   const [selectedFilterTerm, setSelectedFilterTerm] = useState<string>("");
+  const [selectedFilterType, setSelectedFilterType] = useState<string>("");
   const [selectedDayOfWeek, setSelectedDayOfWeek] = useState<number | null>(null);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
@@ -100,21 +101,10 @@ const LeagueManagement: React.FC = () => {
     isEvent: "all",
   });
 
-  useEffect(() => {
-    if (filterTerms && filterTerms.length > 0) {
-      const active = findCurrentTerm(filterTerms) || filterTerms[0];
-      const termIdToSet = active?._id || active?.id;
-      if (!selectedFilterTerm || !filterTerms.some((t: any) => (t._id || t.id) === selectedFilterTerm)) {
-        if (termIdToSet) {
-          setSelectedFilterTerm(termIdToSet);
-        }
-      }
-    }
-  }, [filterTerms]);
-
   const [formData, setFormData] = useState({
     name: "",
     year: new Date().getFullYear().toString(),
+    termScope: "TERM" as "TERM" | "INDEPENDENT",
     term: "",
     season: "",
     description: "",
@@ -146,6 +136,17 @@ const LeagueManagement: React.FC = () => {
 
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [teamSearchQuery, setTeamSearchQuery] = useState("");
+  const [isCreateTeamFormOpen, setIsCreateTeamFormOpen] = useState(false);
+  const [isCreatingTeam, setIsCreatingTeam] = useState(false);
+  const [newTeamForm, setNewTeamForm] = useState({
+    teamName: "",
+    teamType: "INTERNAL",
+    ageGroup: "",
+    coach: "",
+  });
+  const [newTeamPlayerIds, setNewTeamPlayerIds] = useState<string[]>([]);
+  const [newTeamPlayerStatuses, setNewTeamPlayerStatuses] = useState<Record<string, string>>({});
+  const [newTeamPlayerSearch, setNewTeamPlayerSearch] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [cropLogoFile, setCropLogoFile] = useState<File | null>(null);
@@ -208,11 +209,27 @@ const LeagueManagement: React.FC = () => {
 
   // Fetch academy teams for league enrollment (filtered by selected term)
   const { data: allTeamsData, isLoading: teamsLoading } = useQuery({
-    queryKey: ["allAcademyTeams", formData.term],
-    queryFn: () => getAllTeams(formData.term || undefined),
-    enabled: isModalOpen,
+    queryKey: ["allAcademyTeams", formData.termScope, formData.term, formData.year],
+    queryFn: () => getAllTeams(formData.termScope === "TERM" ? formData.term : undefined),
+    enabled: isModalOpen && (formData.termScope === "INDEPENDENT" || Boolean(formData.term)),
   });
   const allAcademyTeams: any[] = getDataArray(allTeamsData);
+  const { data: coachesData } = useQuery({
+    queryKey: ["coaches"],
+    queryFn: () => getAllCoaches(),
+    enabled: isModalOpen && currentStep === 3 && isCreateTeamFormOpen && can("teams", "create"),
+  });
+  const coaches: any[] = Array.isArray(coachesData)
+    ? coachesData
+    : coachesData?.data || coachesData?.coaches || [];
+  const { data: availablePlayersData, isLoading: availablePlayersLoading } = useQuery({
+    queryKey: ["availablePlayersForTeamModal"],
+    queryFn: () => getAvailablePlayers(),
+    enabled: isModalOpen && currentStep === 3 && isCreateTeamFormOpen && can("teams", "create"),
+  });
+  const availablePlayers: any[] = Array.isArray(availablePlayersData)
+    ? availablePlayersData
+    : availablePlayersData?.data || [];
 
   const formatDateForInput = (d: any): string => {
     if (!d) return "";
@@ -270,6 +287,23 @@ const LeagueManagement: React.FC = () => {
     }
   };
 
+  const handleTermScopeChange = (termScope: "TERM" | "INDEPENDENT") => {
+    setValidationErrors({});
+    setFormData((previous) => ({
+      ...previous,
+      termScope,
+      term: "",
+      season: termScope === "INDEPENDENT" ? previous.year : "",
+      startDate: termScope === "INDEPENDENT" ? previous.startDate : "",
+      endDate: termScope === "INDEPENDENT" ? previous.endDate : "",
+    }));
+    if (termScope === "TERM") {
+      setSelectedTeamIds([]);
+      setSelectedDayOfWeek(null);
+      setSessionDates(Array.from({ length: formData.numberOfRounds }, (_, index) => addDateOnlyDays(todayDateOnly(), index * 7)));
+    }
+  };
+
   const handleSelectWeekday = (dayIndex: number) => {
     if (!formData.startDate || !formData.endDate) {
       toast.error("Please set both Start Date and End Date first.");
@@ -311,30 +345,34 @@ const LeagueManagement: React.FC = () => {
     mutationFn: createLeague,
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["leagues"] });
-      toast.success(res?.message || "League created successfully!");
+      setSelectedFilterYear(formData.year);
+      setSelectedFilterTerm(formData.termScope === "INDEPENDENT" ? "INDEPENDENT" : formData.term);
+      toast.success(res?.message || "Tournament created successfully!");
       setIsModalOpen(false);
     },
-    onError: (error: any) => toast.error(error?.response?.data?.message || "Failed to create league"),
+    onError: (error: any) => toast.error(error?.response?.data?.message || "Failed to create tournament"),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => updateLeague(id, data),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["leagues"] });
-      toast.success(res?.message || "League updated successfully!");
+      setSelectedFilterYear(formData.year);
+      setSelectedFilterTerm(formData.termScope === "INDEPENDENT" ? "INDEPENDENT" : formData.term);
+      toast.success(res?.message || "Tournament updated successfully!");
       setIsModalOpen(false);
     },
-    onError: (error: any) => toast.error(error?.response?.data?.message || "Failed to update league"),
+    onError: (error: any) => toast.error(error?.response?.data?.message || "Failed to update tournament"),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteLeague,
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["leagues"] });
-      toast.success(res?.message || "League deleted successfully!");
+      toast.success(res?.message || "Tournament deleted successfully!");
       setDeleteModalId(null);
     },
-    onError: (error: any) => toast.error(error?.response?.data?.message || "Failed to delete league"),
+    onError: (error: any) => toast.error(error?.response?.data?.message || "Failed to delete tournament"),
   });
 
   const handleOpenAdd = () => {
@@ -343,6 +381,7 @@ const LeagueManagement: React.FC = () => {
     setFormData({
       name: "",
       year: currentYear,
+      termScope: "TERM",
       term: "",
       season: "",
       description: "",
@@ -368,6 +407,11 @@ const LeagueManagement: React.FC = () => {
     setSessionDates([todayDateOnly()]);
     setSelectedTeamIds([]);
     setTeamSearchQuery("");
+    setIsCreateTeamFormOpen(false);
+    setNewTeamForm({ teamName: "", teamType: "INTERNAL", ageGroup: "", coach: "" });
+    setNewTeamPlayerIds([]);
+    setNewTeamPlayerStatuses({});
+    setNewTeamPlayerSearch("");
     setSelectedFile(null);
     setPreviewImage(null);
     setIsEditing(false);
@@ -381,11 +425,12 @@ const LeagueManagement: React.FC = () => {
     setValidationErrors({});
     const rounds = league.numberOfRounds ?? 1;
     const termId = typeof league.term === "object" ? league.term?._id : (league.term || league.termId || "");
-    const yearVal = league.year || league.term?.year || (league.term?.startDate ? toDateOnly(league.term.startDate).slice(0, 4) : new Date().getFullYear().toString());
+    const yearVal = league.year || league.term?.year || (league.startDate ? toDateOnly(league.startDate).slice(0, 4) : new Date().getFullYear().toString());
 
     setFormData({
       name: league.name || "",
       year: yearVal ? yearVal.toString() : new Date().getFullYear().toString(),
+      termScope: league.termScope === "INDEPENDENT" || !termId ? "INDEPENDENT" : "TERM",
       term: termId || "",
       season: league.season || "",
       description: league.description || "",
@@ -431,6 +476,11 @@ const LeagueManagement: React.FC = () => {
       : [];
     setSelectedTeamIds(currentTeamIds);
     setTeamSearchQuery("");
+    setIsCreateTeamFormOpen(false);
+    setNewTeamForm({ teamName: "", teamType: "INTERNAL", ageGroup: "", coach: "" });
+    setNewTeamPlayerIds([]);
+    setNewTeamPlayerStatuses({});
+    setNewTeamPlayerSearch("");
     setSelectedFile(null);
     setPreviewImage(getImageUrl(league.logo));
     setIsEditing(true);
@@ -487,31 +537,110 @@ const LeagueManagement: React.FC = () => {
     }
   };
 
+  const toggleNewTeamPlayer = (playerId: string) => {
+    if (newTeamPlayerIds.includes(playerId)) {
+      setNewTeamPlayerIds((previous) => previous.filter((id) => id !== playerId));
+      setNewTeamPlayerStatuses((previous) => {
+        const next = { ...previous };
+        delete next[playerId];
+        return next;
+      });
+      return;
+    }
+    setNewTeamPlayerIds((previous) => [...previous, playerId]);
+  };
+
+  const handleCreateTeamForLeague = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!can("teams", "create")) return;
+    if (formData.termScope === "TERM" && !formData.term) {
+      toast.error("Select an academic term before creating a team.");
+      return;
+    }
+    if (!newTeamForm.teamName.trim() || !newTeamForm.ageGroup.trim()) {
+      toast.error("Enter a team name and age group.");
+      return;
+    }
+
+    setIsCreatingTeam(true);
+    try {
+      const payload = new FormData();
+      payload.append("teamName", newTeamForm.teamName.trim());
+      payload.append("teamType", newTeamForm.teamType);
+      payload.append("isExternal", newTeamForm.teamType === "EXTERNAL" ? "true" : "false");
+      payload.append("ageGroup", newTeamForm.ageGroup.trim());
+      payload.append("termScope", formData.termScope);
+      if (formData.termScope === "TERM") payload.append("term", formData.term);
+      const selectedTerm = terms.find((term: any) => String(term._id || term.id) === String(formData.term));
+      const teamYear = formData.termScope === "TERM" && selectedTerm?.year ? String(selectedTerm.year) : formData.year;
+      if (teamYear) payload.append("year", teamYear);
+      if (formData.termScope === "INDEPENDENT") {
+        if (formData.startDate) payload.append("startDate", formData.startDate);
+        if (formData.endDate) payload.append("endDate", formData.endDate);
+      }
+      if (newTeamForm.coach) payload.append("coach", newTeamForm.coach);
+      if (newTeamPlayerIds.length > 0) {
+        const playersPayload = newTeamPlayerIds.map((playerId) => ({
+          player: playerId,
+          paymentStatus: newTeamPlayerStatuses[playerId] || "UNPAID",
+        }));
+        payload.append("players", JSON.stringify(playersPayload));
+      }
+
+      const response = await createTeam(payload);
+      const newTeamId = response?.data?._id || response?.team?._id || response?._id || response?.data?.id || response?.id;
+      if (!newTeamId) throw new Error("The server did not return the created team ID.");
+
+      setSelectedTeamIds((previous) => previous.includes(newTeamId) ? previous : [...previous, newTeamId]);
+      await queryClient.invalidateQueries({ queryKey: ["allAcademyTeams"] });
+      await queryClient.invalidateQueries({ queryKey: ["availablePlayersForTeamModal"] });
+      setTeamSearchQuery("");
+      setNewTeamForm({ teamName: "", teamType: "INTERNAL", ageGroup: "", coach: "" });
+      setNewTeamPlayerIds([]);
+      setNewTeamPlayerStatuses({});
+      setNewTeamPlayerSearch("");
+      setIsCreateTeamFormOpen(false);
+      toast.success(`Team "${newTeamForm.teamName.trim()}" created and selected for this tournament.`);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || error?.message || "Failed to create team");
+    } finally {
+      setIsCreatingTeam(false);
+    }
+  };
+
   const validateStep1 = () => {
     const result = validateWithSchema(leagueIdentitySchema, formData);
+    const errors = { ...result.errors };
+    if (formData.termScope === "TERM" && !formData.term) errors.term = "Select an academic term.";
     setValidationErrors((previous) => {
       const next = { ...previous };
       ["name", "term", "type"].forEach((field) => delete next[field]);
-      return { ...next, ...result.errors };
+      return { ...next, ...errors };
     });
-    return result.success;
+    return result.success && !errors.term;
   };
 
-  const getValidationError = (field: "name" | "term" | "type" | "fee" | "rounds" | "dates") => validationErrors[field];
+  const getValidationError = (field: "name" | "term" | "type" | "fee" | "rounds" | "dates" | "startDate" | "endDate") => validationErrors[field];
 
   const validateStep2 = () => {
     const result = validateWithSchema(leagueRulesSchema, { fee: formData.fee, rounds: formData.numberOfRounds });
     const validDates = sessionDates.filter(Boolean);
     const errors = { ...result.errors };
+    if (formData.termScope === "INDEPENDENT" && !formData.startDate) errors.startDate = "Choose a start date for this independent tournament.";
+    if (formData.termScope === "INDEPENDENT" && !formData.endDate) errors.endDate = "Choose an end date for this independent tournament.";
+    if (formData.startDate && formData.endDate && formData.endDate < formData.startDate) errors.endDate = "End date must be on or after the start date.";
     if (validDates.length < Number(formData.numberOfRounds)) {
       errors.dates = `Select a session date for all ${formData.numberOfRounds} round(s).`;
     }
+    if (formData.termScope === "INDEPENDENT" && formData.startDate && formData.endDate && validDates.some((date) => date < formData.startDate || date > formData.endDate)) {
+      errors.dates = "Round dates must be within the tournament start and end dates.";
+    }
     setValidationErrors((previous) => {
       const next = { ...previous };
-      ["fee", "rounds", "dates"].forEach((field) => delete next[field]);
+      ["fee", "rounds", "dates", "startDate", "endDate"].forEach((field) => delete next[field]);
       return { ...next, ...errors };
     });
-    return result.success && !errors.dates;
+    return result.success && !errors.dates && !errors.startDate && !errors.endDate;
   };
 
   const handleSubmit = (e?: React.FormEvent | React.MouseEvent) => {
@@ -557,14 +686,18 @@ const LeagueManagement: React.FC = () => {
     setValidationErrors({});
     const payload = new FormData();
     payload.append("name", formData.name.trim());
-    if (formData.term) {
+    payload.append("termScope", formData.termScope);
+    if (formData.termScope === "TERM" && formData.term) {
       payload.append("term", formData.term);
       payload.append("termId", formData.term);
+    } else if (isEditing) {
+      payload.append("term", "");
+      payload.append("termId", "");
     }
-    const selectedTermObj = terms.find((t: any) => (t._id || t.id) === formData.term);
+    const selectedTermObj = formData.termScope === "TERM" ? terms.find((t: any) => (t._id || t.id) === formData.term) : null;
     const leagueYear = selectedTermObj?.year ? String(selectedTermObj.year) : formData.year;
     if (leagueYear) payload.append("year", leagueYear);
-    const seasonVal = selectedTermObj?.name || formData.season || (leagueYear ? `${leagueYear}` : "");
+    const seasonVal = formData.termScope === "INDEPENDENT" ? leagueYear : (selectedTermObj?.name || formData.season || leagueYear);
     if (seasonVal) {
       payload.append("season", seasonVal);
     }
@@ -616,6 +749,17 @@ const LeagueManagement: React.FC = () => {
     );
   });
 
+  const filteredAvailablePlayers = sortPlayersByPaymentStatus(
+    availablePlayers,
+    (player: any) => player.paymentStatus,
+    (player: any) => player.fullName || player.name,
+  )
+    .filter((player: any) => {
+      const name = player.fullName || `${player.firstName || ""} ${player.lastName || ""}`.trim() || player.name || "";
+      return name.toLowerCase().includes(newTeamPlayerSearch.toLowerCase());
+    })
+    .slice(0, 30);
+
   const filteredLeagues = leagues.filter((league: any) => {
     // 1. Search Query Filter
     const matchesSearch =
@@ -628,6 +772,12 @@ const LeagueManagement: React.FC = () => {
 
     if (!matchesSearch) return false;
 
+    // Tournament Type Filter
+    if (selectedFilterType) {
+      const leagueType = String(league.type || league.leagueType || league.competitionScope || "").toUpperCase();
+      if (leagueType !== selectedFilterType) return false;
+    }
+
     // 2. Year Filter
     if (selectedFilterYear) {
       const lYear = String(
@@ -637,7 +787,7 @@ const LeagueManagement: React.FC = () => {
         ""
       );
       const inSeason = league.season ? String(league.season).includes(selectedFilterYear) : false;
-      if (lYear && lYear !== selectedFilterYear && !inSeason) {
+      if ((lYear && lYear !== selectedFilterYear) || (!lYear && !inSeason)) {
         return false;
       }
     }
@@ -645,6 +795,11 @@ const LeagueManagement: React.FC = () => {
     // 3. Term Filter
     if (selectedFilterTerm) {
       const leagueTermId = typeof league.term === "object" ? (league.term?._id || league.term?.id) : (league.term || league.termId);
+      if (selectedFilterTerm === "INDEPENDENT") {
+        if (league.termScope !== "INDEPENDENT" && leagueTermId) return false;
+        return true;
+      }
+      if (league.termScope === "INDEPENDENT" || !leagueTermId) return false;
       const selectedTermObj = filterTerms.find((t: any) => String(t._id || t.id) === String(selectedFilterTerm));
       const termName = selectedTermObj?.name || selectedTermObj?.termName || "";
 
@@ -663,6 +818,13 @@ const LeagueManagement: React.FC = () => {
     return true;
   });
 
+  const yearChoices = Array.from(new Set([
+    ...Array.from({ length: 21 }, (_, index) => new Date().getFullYear() - 10 + index),
+    ...leagues.map((league: any) => Number(league.year || league.term?.year || (league.startDate ? toDateOnly(league.startDate).slice(0, 4) : 0))),
+    Number(formData.year),
+    Number(selectedFilterYear),
+  ])).filter((year) => Number.isInteger(year) && year > 0).sort((a, b) => a - b);
+
   return (
     <div className="flex flex-col gap-4 w-full">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -672,10 +834,10 @@ const LeagueManagement: React.FC = () => {
           </svg>
           <input
             type="text"
-            placeholder="Search leagues..."
+            placeholder="Search tournaments..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-none outline-none focus:border-brand-500 bg-white dark:bg-slate-800 dark:text-white transition-colors shadow-sm"
+            className="box-border h-10 w-full pl-9 pr-4 text-sm border border-slate-200 dark:border-slate-700 rounded-none outline-none focus:border-brand-500 bg-white dark:bg-slate-800 dark:text-white transition-colors shadow-sm"
           />
         </div>
         <div className="flex items-center gap-3 flex-wrap">
@@ -686,10 +848,10 @@ const LeagueManagement: React.FC = () => {
               setSelectedFilterYear(e.target.value);
               setSelectedFilterTerm("");
             }}
-            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 rounded-none focus:outline-none focus:border-[#0047FF] shadow-xs cursor-pointer"
+            className="box-border h-10 w-24 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-0 text-sm font-semibold text-slate-800 dark:text-slate-200 rounded-none focus:outline-none focus:border-[#0047FF] shadow-xs cursor-pointer"
           >
             <option value="">All Years</option>
-            {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map((yr) => (
+            {yearChoices.map((yr) => (
               <option key={yr} value={yr}>
                 {yr}
               </option>
@@ -700,9 +862,11 @@ const LeagueManagement: React.FC = () => {
           <select
             value={selectedFilterTerm}
             onChange={(e) => setSelectedFilterTerm(e.target.value)}
-            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 rounded-none focus:outline-none focus:border-[#0047FF] shadow-xs cursor-pointer max-w-[240px]"
+            aria-label="Filter tournaments by academic term"
+            className="box-border h-10 w-44 max-w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-0 text-sm font-semibold text-slate-800 dark:text-slate-200 rounded-none focus:outline-none focus:border-[#0047FF] shadow-xs cursor-pointer"
           >
             <option value="">All Terms</option>
+            <option value="INDEPENDENT">Independent / No Term</option>
             {filterTerms.map((t: any) => (
               <option key={t._id || t.id} value={t._id || t.id}>
                 {t.name || t.termName || t.title || "Term"} {t.year ? `(${t.year})` : ""}
@@ -710,173 +874,208 @@ const LeagueManagement: React.FC = () => {
             ))}
           </select>
 
-          {can("leagues", "create") && scope("leagues") === "ALL" && <Button onClick={handleOpenAdd} size="sm">Add League</Button>}
+          {/* Tournament Type Filter */}
+          <select
+            value={selectedFilterType}
+            onChange={(e) => setSelectedFilterType(e.target.value)}
+            aria-label="Filter tournaments by type"
+            className="box-border h-10 w-32 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-0 text-sm font-semibold text-slate-800 dark:text-slate-200 rounded-none focus:outline-none focus:border-[#0047FF] shadow-xs cursor-pointer"
+          >
+            <option value="">All Types</option>
+            <option value="INTERNATIONAL">International</option>
+            <option value="NATIONAL">National</option>
+            <option value="STATE">State</option>
+            <option value="LOCAL">Local</option>
+            <option value="OTHERS">Others</option>
+          </select>
+
+          {can("leagues", "create") && scope("leagues") === "ALL" && (
+            <Button
+              onClick={handleOpenAdd}
+              size="sm"
+              className="box-border h-10 w-36 !px-4 !py-0 text-sm font-semibold whitespace-nowrap"
+            >
+              Add Tournament
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="bg-white border border-slate-100 shadow-theme-xs dark:bg-slate-900 dark:border-slate-800 overflow-visible">
-        <div className="overflow-visible no-scrollbar">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-[#031549] text-white text-[10px] font-bold uppercase tracking-wider">
-                <th className="py-3 px-4 min-w-[200px]">League Detail</th>
-                <th className="py-3 px-4 min-w-[140px]">Term / Year</th>
-                <th className="py-3 px-4 min-w-[140px]">Type</th>
-                <th className="py-3 px-4 min-w-[100px]">Status</th>
-                <th className="py-3 px-4 min-w-[100px]">Teams</th>
-                <th className="py-3 px-4 min-w-[150px]">Dates</th>
-                <th className="py-3 px-4 w-[50px] text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={7} className="text-center py-20">
-                  <div className="flex flex-col items-center gap-3 text-gray-400">
-                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-brand-500 border-t-transparent shadow-sm"></div>
-                    <span className="text-xs font-bold uppercase tracking-widest animate-pulse">Syncing Leagues...</span>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        {loading ? (
+          <div className="col-span-full flex flex-col items-center gap-3 py-20 text-gray-400">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand-500 border-t-transparent shadow-sm" />
+            <span className="animate-pulse text-xs font-bold uppercase tracking-widest">Syncing Tournaments...</span>
+          </div>
+        ) : filteredLeagues.length === 0 ? (
+          <div className="col-span-full py-20 text-center text-sm font-medium italic text-gray-500">No tournaments found.</div>
+        ) : filteredLeagues.map((league: any) => {
+          const type = (league.type || league.leagueType || league.competitionScope || "NATIONAL").toUpperCase();
+          const typeStyles: Record<string, string> = {
+            INTERNATIONAL: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900/60",
+            STATE: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900/60",
+            LOCAL: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
+            INTERNAL: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
+          };
+          const typeLabels: Record<string, string> = {
+            INTERNATIONAL: "International",
+            STATE: "State / Regional",
+            LOCAL: "Local / Internal",
+            INTERNAL: "Local / Internal",
+          };
+          const status = (league.status || "DRAFT").toUpperCase();
+          const statusStyles: Record<string, string> = {
+            ACTIVE: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/60",
+            UPCOMING: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/60",
+            COMPLETED: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900/60",
+          };
+          const independent = league.termScope === "INDEPENDENT" || (!league.term && !league.termId);
+          const termName = independent ? "Independent / No Term" : (league.term?.name || league.termName || league.season || "Term not set");
+          const year = league.year || league.term?.year || (league.startDate ? toDateOnly(league.startDate).slice(0, 4) : "Year not set");
+
+          return (
+            <article
+              key={league._id}
+              onClick={() => navigate("/leagues/" + league._id)}
+              className="relative cursor-pointer rounded-none border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
+            >
+              <div className="relative h-32 overflow-hidden rounded-none bg-gradient-to-br from-[#0047FF] via-[#1559EA] to-[#031549] px-5 py-4">
+                <div className="pointer-events-none absolute -right-8 -top-20 h-56 w-56 rounded-full border-[24px] border-white/10" />
+                <div className="pointer-events-none absolute -bottom-20 left-1/3 h-40 w-[130%] -rotate-6 rounded-[50%] border-t border-white/20 bg-white/5" />
+                <div className="relative flex h-full items-center">
+                  <div className="flex h-[76px] w-[76px] shrink-0 items-center justify-center overflow-hidden rounded-none border border-white/30 bg-white/15 text-white shadow-lg backdrop-blur-sm">
+                    {league.logo ? (
+                      <img src={getImageUrl(league.logo) as string} alt={league.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <Trophy size={38} strokeWidth={2.2} />
+                    )}
                   </div>
-                </td></tr>
-              ) : filteredLeagues.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-20 text-gray-500 font-medium italic">No leagues found.</td></tr>
-              ) : (
-                filteredLeagues.map((league: any) => (
-                  <tr
-                    key={league._id}
-                    onClick={() => navigate(`/leagues/${league._id}`)}
-                    className="border-b border-slate-50 last:border-0 dark:border-slate-800/40 hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-all cursor-pointer"
-                  >
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-none bg-brand-50 overflow-hidden flex items-center justify-center text-brand-600 border border-brand-100 shadow-sm shrink-0">
-                          {league.logo ? (
-                            <img src={getImageUrl(league.logo) as string} alt={league.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <Trophy size={18} />
-                          )}
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="font-bold text-sm text-slate-800 dark:text-slate-200 tracking-tight hover:text-brand-600 transition-colors">{league.name}</span>
-                          <span className="text-[10px] font-semibold text-slate-500 max-w-[200px] truncate" title={league.description}>{league.description || "No description"}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex flex-col gap-1 text-xs text-slate-700 dark:text-slate-300 font-bold tracking-tight">
-                        <span>{league.term?.name || league.termName || league.season || "Term not set"}</span>
-                        <span className="text-[10px] font-medium text-slate-500">{league.year || league.term?.year || (league.term?.startDate ? toDateOnly(league.term.startDate).slice(0, 4) : "Year not set")}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      {(() => {
-                        const t = (league.type || league.leagueType || "NATIONAL").toUpperCase();
-                        let badgeClass = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/60";
-                        let label = "National";
+                </div>
+              </div>
 
-                        if (t === "INTERNATIONAL") {
-                          badgeClass = "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900/60";
-                          label = "International";
-                        } else if (t === "STATE") {
-                          badgeClass = "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900/60";
-                          label = "State / Regional";
-                        } else if (t === "LOCAL" || t === "INTERNAL") {
-                          badgeClass = "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700";
-                          label = "Local / Internal";
-                        }
+              <button
+                type="button"
+                className="absolute right-4 top-4 z-10 rounded-none border border-white/70 bg-white/95 p-2 text-[#031549] shadow-sm transition-colors hover:bg-white"
+                title="More Options"
+                aria-label={"More options for " + league.name}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenDropdownId(openDropdownId === league._id ? null : league._id);
+                }}
+              >
+                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm0 5.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm0 5.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" />
+                </svg>
+              </button>
 
-                        return (
-                          <span className={`px-2 py-1 text-[10px] font-bold rounded-none border uppercase tracking-wider ${badgeClass}`}>
-                            {label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                    <td className="py-4 px-4">
-                      {(() => {
-                        const s = (league.status || "DRAFT").toUpperCase();
-                        let badgeClass = "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700";
-                        if (s === "ACTIVE") badgeClass = "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/60";
-                        else if (s === "UPCOMING") badgeClass = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/60";
-                        else if (s === "COMPLETED") badgeClass = "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900/60";
-                        return (
-                          <span className={`px-2 py-1 text-[10px] font-bold rounded-none border uppercase tracking-wider ${badgeClass}`}>
-                            {s}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
-                        <Users size={14} className="text-slate-400" />
-                        <span>{league.teams?.length || 0}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                        <span className="flex items-center gap-1.5"><Calendar size={12} className="text-brand-500" /> Start: {league.startDate ? formatDateOnly(league.startDate) : "TBD"}</span>
-                        <span className="flex items-center gap-1.5"><Calendar size={12} className="text-slate-400" /> End: {league.endDate ? formatDateOnly(league.endDate) : "TBD"}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4 text-right relative" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 p-1 bg-white border border-slate-200 dark:bg-slate-800 dark:border-slate-700 rounded-none shadow-sm hover:shadow transition-colors"
-                        title="More Options"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenDropdownId(openDropdownId === league._id ? null : league._id);
-                        }}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                        </svg>
-                      </button>
-
-                      {openDropdownId === league._id && (
-                        <div className="absolute right-8 top-10 w-44 bg-white dark:bg-slate-800 rounded-none shadow-[0_4px_20px_-4px_rgba(0,0,0,0.1)] border border-slate-100 dark:border-slate-700 z-50 py-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
-                          <button
-                            className="w-full text-left px-4 py-2 text-xs font-semibold text-brand-600 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/leagues/${league._id}`);
-                              setOpenDropdownId(null);
-                            }}
-                          >
-                            View Details
-                          </button>
-                          {can("communication", "create") && <ChatActionButton
-                            contextLabel={league.name}
-                            buttonText="League Chat"
-                            className="w-full text-left px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border-t border-slate-100 dark:border-slate-700/60 inline-flex items-center gap-2"
-                            ensureRoom={() => chatApi.openLeagueChat(league._id)}
-                          />}
-                          {can("leagues", "edit") && scope("leagues") === "ALL" && <button
-                            className="w-full text-left px-4 py-2 text-xs font-semibold text-[#0047FF] hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border-t border-slate-100 dark:border-slate-700/60"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenEdit(league);
-                              setOpenDropdownId(null);
-                            }}
-                          >
-                            Edit League
-                          </button>}
-                          {can("leagues", "delete") && scope("leagues") === "ALL" && <button
-                            className="w-full text-left px-4 py-2 text-xs font-semibold text-rose-600 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border-t border-slate-100 dark:border-slate-700 mt-1 pt-2"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteClick(league._id);
-                              setOpenDropdownId(null);
-                            }}
-                          >
-                            Delete League
-                          </button>}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))
+              {openDropdownId === league._id && (
+                <div onClick={(e) => e.stopPropagation()} className="absolute right-3 top-12 z-50 w-44 overflow-hidden rounded-none border border-slate-100 bg-white py-1.5 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.15)] dark:border-slate-700 dark:bg-slate-800">
+                  <button
+                    className="w-full px-4 py-2 text-left text-xs font-semibold text-brand-600 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                    onClick={() => { navigate("/leagues/" + league._id); setOpenDropdownId(null); }}
+                  >View Details</button>
+                  {can("communication", "create") && <ChatActionButton
+                    contextLabel={league.name}
+                    buttonText="Tournament Chat"
+                    className="inline-flex w-full items-center gap-2 border-t border-slate-100 px-4 py-2 text-left text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-700/50"
+                    ensureRoom={() => chatApi.openLeagueChat(league._id)}
+                  />}
+                  {can("communication", "create") && can("parents", "read") && <button
+                    type="button"
+                    onClick={() => {
+                      setOpenDropdownId(null);
+                      const params = new URLSearchParams({ audienceType: "TOURNAMENT", audienceId: league._id });
+                      navigate(`/email-campaigns?${params.toString()}`);
+                    }}
+                    className="flex w-full items-center gap-2 border-t border-slate-100 px-4 py-2 text-left text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-700/50"
+                  ><Mail size={14} className="text-brand-600" /> Email Teams</button>}
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
+
+              <div className="p-4">
+                <div className="flex min-h-[68px] items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-base font-extrabold tracking-tight text-[#031549] dark:text-white" title={league.name}>{league.name}</h3>
+                    <p className="mt-1 line-clamp-2 min-h-8 text-xs font-medium text-slate-500 dark:text-slate-400" title={league.description}>{league.description || "No description"}</p>
+                  </div>
+                  <span className={"shrink-0 rounded-none border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-wide " + (typeStyles[type] || "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/60")}>
+                    {typeLabels[type] || "National"}
+                  </span>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-4 border-t border-slate-100 py-4 dark:border-slate-800">
+                  <div className="flex min-w-0 gap-2.5">
+                    <Calendar size={17} className="mt-0.5 shrink-0 text-[#0047FF]" />
+                    <div className="min-w-0">
+                      <span className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400">{independent ? "Schedule" : "Term"}</span>
+                      <span className="mt-0.5 block truncate text-xs font-bold text-[#031549] dark:text-slate-100" title={termName}>{termName}</span>
+                      <span className="text-[10px] font-medium text-slate-500">{year}</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2.5 border-l border-slate-100 pl-4 dark:border-slate-800">
+                    <Clock3 size={17} className="mt-0.5 shrink-0 text-[#0047FF]" />
+                    <div>
+                      <span className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400">Status</span>
+                      <span className={"mt-1 inline-flex rounded-none px-2 py-0.5 text-[10px] font-extrabold uppercase " + (statusStyles[status] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300")}>
+                        {status}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2.5">
+                    <Users size={17} className="mt-0.5 shrink-0 text-[#0047FF]" />
+                    <div>
+                      <span className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400">Teams</span>
+                      <span className="mt-0.5 block text-xs font-bold text-[#031549] dark:text-slate-100">{league.teams?.length || 0}</span>
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 gap-2.5 border-l border-slate-100 pl-4 dark:border-slate-800">
+                    <Calendar size={17} className="mt-0.5 shrink-0 text-[#0047FF]" />
+                    <div className="min-w-0 text-[10px] font-semibold text-slate-600 dark:text-slate-400">
+                      <span className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400">Dates</span>
+                      <span className="mt-0.5 block truncate">Start: {league.startDate ? formatDateOnly(league.startDate) : "TBD"}</span>
+                      <span className="block truncate">End: {league.endDate ? formatDateOnly(league.endDate) : "TBD"}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 rounded-none bg-blue-50/80 p-2 dark:bg-slate-800/80" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/leagues/" + league._id)}
+                    className="inline-flex flex-1 items-center gap-2 px-2 py-2 text-left text-xs font-bold text-[#0047FF] transition-colors hover:text-[#031549] dark:hover:text-blue-300"
+                  >
+                    <Eye size={16} /> View Details
+                  </button>
+                  {can("communication", "create") && can("parents", "read") && <button
+                    type="button"
+                    aria-label={`Email teams in ${league.name}`}
+                    title={`Email teams in ${league.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const params = new URLSearchParams({ audienceType: "TOURNAMENT", audienceId: league._id });
+                      navigate(`/email-campaigns?${params.toString()}`);
+                    }}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-blue-100 bg-white text-[#0047FF] shadow-sm transition-colors hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-700"
+                  ><Mail size={15} /></button>}
+                  {can("leagues", "edit") && scope("leagues") === "ALL" && <button
+                    type="button"
+                    aria-label={"Edit " + league.name}
+                    title="Edit Tournament"
+                    onClick={() => handleOpenEdit(league)}
+                    className="inline-flex items-center gap-1.5 rounded-none border border-blue-100 bg-white px-3 py-2 text-xs font-bold text-[#0047FF] shadow-sm transition-colors hover:bg-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-700"
+                  ><Pencil size={14} />Edit</button>}
+                  {can("leagues", "delete") && scope("leagues") === "ALL" && <button
+                    type="button"
+                    aria-label={"Delete " + league.name}
+                    title="Delete Tournament"
+                    onClick={() => handleDeleteClick(league._id)}
+                    className="inline-flex items-center justify-center rounded-none bg-rose-100 p-2.5 text-rose-600 transition-colors hover:bg-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:hover:bg-rose-900/60"
+                  ><Trash2 size={15} /></button>}
+                </div>
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       <Modal
@@ -888,14 +1087,14 @@ const LeagueManagement: React.FC = () => {
       >
         <FormHeader
           icon={Trophy}
-          title={isEditing ? "Modify League" : "Create New League"}
+          title={isEditing ? "Modify Tournament" : "Create New Tournament"}
           description={`Step ${currentStep} of 3: ${currentStep === 1 ? "Basic Information & Logo" : currentStep === 2 ? "Fixtures & Scoring Rules" : "Participating Teams"}`}
           className="-mx-6 -mt-6 mb-4 rounded-t-xl border-b border-[#082269] lg:-mx-8 lg:-mt-8"
           actions={(
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              aria-label="Close league form"
+              aria-label="Close tournament form"
               className="inline-flex h-9 w-9 items-center justify-center rounded-full text-white/75 transition-colors hover:bg-white/10 hover:text-white"
             >
               <X className="h-5 w-5" />
@@ -906,7 +1105,7 @@ const LeagueManagement: React.FC = () => {
           className="mb-5 border-b border-gray-100 pb-4 dark:border-gray-800"
           currentStep={currentStep}
           steps={[
-            { label: "Basic information", description: "League identity & logo" },
+            { label: "Basic information", description: "Tournament identity & logo" },
             { label: "Fixtures & rules", description: "Schedule and scoring" },
             { label: "Participating teams", description: "Choose teams" },
           ]}
@@ -919,7 +1118,8 @@ const LeagueManagement: React.FC = () => {
 
         <div data-coachmax-form
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") {
+            const target = e.target as HTMLElement;
+            if (e.key === "Enter" && target.tagName === "INPUT" && !target.closest("[data-allow-enter-submit]")) {
               e.preventDefault();
             }
           }}
@@ -942,10 +1142,24 @@ const LeagueManagement: React.FC = () => {
                   </h5>
                 </div>
 
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Tournament term association">
+                  <button type="button" aria-pressed={formData.termScope === "TERM"} onClick={() => formData.termScope !== "TERM" && handleTermScopeChange("TERM")}
+                    className={`border px-3.5 py-2 text-xs font-bold transition-colors ${formData.termScope === "TERM" ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"}`}>
+                    Academic Term
+                  </button>
+                  <button type="button" aria-pressed={formData.termScope === "INDEPENDENT"} onClick={() => formData.termScope !== "INDEPENDENT" && handleTermScopeChange("INDEPENDENT")}
+                    className={`border px-3.5 py-2 text-xs font-bold transition-colors ${formData.termScope === "INDEPENDENT" ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"}`}>
+                    Independent / No Term
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {formData.termScope === "TERM" ? "Select an academic term to use its dates and term teams." : "Set your own tournament dates in Fixtures & Rules. Teams can be created without a term."}
+                </p>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label htmlFor="league-name" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  League Name <span className="text-rose-500">*</span>
+                  Tournament Name <span className="text-rose-500">*</span>
                 </label>
                 <input
                   id="league-name"
@@ -953,7 +1167,7 @@ const LeagueManagement: React.FC = () => {
                   value={formData.name}
                   onChange={(e) => { const name = e.target.value; setFormData({ ...formData, name }); clearValidationError("name", Boolean(name.trim())); }}
                   className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-xs font-semibold focus:border-brand-500 outline-none text-slate-900 dark:text-white"
-                  placeholder="e.g. Premier Youth League"
+                  placeholder="e.g. Premier Youth Tournament"
                   aria-required="true"
                   aria-invalid={Boolean(getValidationError("name"))}
                   aria-describedby={getValidationError("name") ? "league-name-error" : undefined}
@@ -969,13 +1183,13 @@ const LeagueManagement: React.FC = () => {
                   id="league-year"
                   value={formData.year}
                   onChange={(e) => {
-                    setFormData({ ...formData, year: e.target.value, term: "", startDate: "", endDate: "" });
+                    setFormData({ ...formData, year: e.target.value, season: formData.termScope === "INDEPENDENT" ? e.target.value : "", term: "", startDate: formData.termScope === "INDEPENDENT" ? formData.startDate : "", endDate: formData.termScope === "INDEPENDENT" ? formData.endDate : "" });
                     setSelectedTeamIds([]);
                   }}
                   className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-xs font-semibold focus:border-brand-500 outline-none text-slate-900 dark:text-white cursor-pointer"
                 >
                   <option value="">All Years</option>
-                  {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map((yr) => (
+                  {yearChoices.map((yr) => (
                     <option key={yr} value={yr}>
                       {yr}
                     </option>
@@ -983,7 +1197,7 @@ const LeagueManagement: React.FC = () => {
                 </select>
               </div>
 
-              <div>
+              {formData.termScope === "TERM" ? <div>
                 <label htmlFor="league-term" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
                   Academic Term <span className="text-rose-500">*</span>
                 </label>
@@ -1004,11 +1218,14 @@ const LeagueManagement: React.FC = () => {
                   ))}
                 </select>
                 {getValidationError("term") && <p id="league-term-error" role="alert" className="mt-1 text-xs text-error-600">{getValidationError("term")}</p>}
-              </div>
+              </div> : <div className="flex flex-col justify-end">
+                <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Academic Term</span>
+                <div className="flex min-h-10 items-center border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-xs font-semibold text-brand-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">Independent / No Term</div>
+              </div>}
 
               <div>
                 <label htmlFor="league-type" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  League Type <span className="text-rose-500">*</span>
+                  Tournament Type <span className="text-rose-500">*</span>
                 </label>
                 <select
                   id="league-type"
@@ -1077,7 +1294,7 @@ const LeagueManagement: React.FC = () => {
                 <div className="flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
                   <ImageIcon size={16} className="text-indigo-600" />
                   <h5 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
-                    League Logo / Crest (leagueLogo)
+                    Tournament Logo / Crest
                   </h5>
                 </div>
 
@@ -1085,7 +1302,7 @@ const LeagueManagement: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    aria-label={previewImage ? "Replace league logo" : "Upload league logo"}
+                    aria-label={previewImage ? "Replace tournament logo" : "Upload tournament logo"}
                     className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center justify-center cursor-pointer overflow-hidden group hover:border-brand-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/20 transition-colors shrink-0 shadow-xs"
                   >
                     {previewImage ? (
@@ -1151,7 +1368,7 @@ const LeagueManagement: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Start Date
+                  Start Date {formData.termScope === "INDEPENDENT" && <span className="text-rose-500">*</span>}
                 </label>
                 <div className="relative">
                   <DateInput
@@ -1160,7 +1377,11 @@ const LeagueManagement: React.FC = () => {
                     value={formData.startDate}
                     onChange={(e) => {
                       const newStart = e.target.value;
-                      setFormData((prev) => ({ ...prev, startDate: newStart }));
+                      setFormData((prev) => ({ ...prev, startDate: newStart, ...(prev.termScope === "INDEPENDENT" && newStart ? { year: newStart.slice(0, 4), season: newStart.slice(0, 4) } : {}) }));
+                      clearValidationError("startDate", Boolean(newStart));
+                      if (formData.termScope === "INDEPENDENT" && newStart && selectedDayOfWeek === null) {
+                        setSessionDates((previous) => previous.map((_, index) => addDateOnlyDays(newStart, index * 7)));
+                      }
                       if (selectedDayOfWeek !== null && newStart && formData.endDate) {
                         const dates = getDatesForWeekday(newStart, formData.endDate, selectedDayOfWeek);
                         if (dates.length > 0) {
@@ -1184,11 +1405,12 @@ const LeagueManagement: React.FC = () => {
                     <Calendar className="text-slate-400 w-3.5 h-3.5" />
                   </div>
                 </div>
+                {getValidationError("startDate") && <p role="alert" className="mt-1 text-xs text-error-600">{getValidationError("startDate")}</p>}
               </div>
 
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  End Date
+                  End Date {formData.termScope === "INDEPENDENT" && <span className="text-rose-500">*</span>}
                 </label>
                 <div className="relative">
                   <DateInput
@@ -1198,6 +1420,7 @@ const LeagueManagement: React.FC = () => {
                     onChange={(e) => {
                       const newEnd = e.target.value;
                       setFormData((prev) => ({ ...prev, endDate: newEnd }));
+                      clearValidationError("endDate", Boolean(newEnd && (!formData.startDate || newEnd >= formData.startDate)));
                       if (selectedDayOfWeek !== null && formData.startDate && newEnd) {
                         const dates = getDatesForWeekday(formData.startDate, newEnd, selectedDayOfWeek);
                         if (dates.length > 0) {
@@ -1221,6 +1444,7 @@ const LeagueManagement: React.FC = () => {
                     <Calendar className="text-slate-400 w-3.5 h-3.5" />
                   </div>
                 </div>
+                {getValidationError("endDate") && <p role="alert" className="mt-1 text-xs text-error-600">{getValidationError("endDate")}</p>}
               </div>
             </div>
           </div>
@@ -1335,7 +1559,7 @@ const LeagueManagement: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800">
               <div>
                 <label htmlFor="league-fee" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  League Fee Per Player ($) <span className="text-rose-500">*</span>
+                  Tournament Fee Per Player ($) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   id="league-fee"
@@ -1602,12 +1826,25 @@ const LeagueManagement: React.FC = () => {
                         • {terms.find((t: any) => String(t._id || t.id) === String(formData.term))?.name || "Selected Term"}
                       </span>
                     )}
+                    {formData.termScope === "INDEPENDENT" && <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">• Independent / No Term</span>}
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300">
                       {selectedTeamIds.length} Selected
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    {can("teams", "create") && (
+                      <button
+                        type="button"
+                        onClick={() => setIsCreateTeamFormOpen((open) => !open)}
+                        disabled={formData.termScope === "TERM" && !formData.term}
+                        aria-expanded={isCreateTeamFormOpen}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-white px-3 py-1.5 text-[11px] font-bold text-brand-600 transition-colors hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand-900 dark:bg-slate-900 dark:hover:bg-slate-800"
+                      >
+                        <Plus size={13} />
+                        {isCreateTeamFormOpen ? "Close" : "Create Team"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={handleSelectAllTeams}
@@ -1620,6 +1857,185 @@ const LeagueManagement: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                {isCreateTeamFormOpen && can("teams", "create") && (
+                  <form
+                    data-allow-enter-submit
+                    onSubmit={handleCreateTeamForLeague}
+                    className="space-y-4 rounded-lg border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900/60 dark:bg-blue-950/20"
+                  >
+                    <div>
+                      <h6 className="text-xs font-black text-slate-900 dark:text-white">Create a team for this tournament</h6>
+                      <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        {formData.termScope === "TERM" ? "The team will use the selected academic term and be added to participating teams." : "The team will be independent of academic terms and added to this tournament."}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div>
+                        <label htmlFor="league-new-team-name" className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                          Team Name <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          id="league-new-team-name"
+                          type="text"
+                          required
+                          value={newTeamForm.teamName}
+                          onChange={(e) => setNewTeamForm((previous) => ({ ...previous, teamName: e.target.value }))}
+                          placeholder="e.g. Under 16 Tigers"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="league-new-team-type" className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                          Team Category
+                        </label>
+                        <select
+                          id="league-new-team-type"
+                          value={newTeamForm.teamType}
+                          onChange={(e) => setNewTeamForm((previous) => ({ ...previous, teamType: e.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                        >
+                          <option value="INTERNAL">Our Team (Academy)</option>
+                          <option value="EXTERNAL">External Team</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="league-new-team-age-group" className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                          Age Group <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          id="league-new-team-age-group"
+                          type="text"
+                          required
+                          value={newTeamForm.ageGroup}
+                          onChange={(e) => setNewTeamForm((previous) => ({ ...previous, ageGroup: e.target.value }))}
+                          placeholder="e.g. U16"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="league-new-team-coach" className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                          Head Coach <span className="normal-case font-medium tracking-normal">(optional)</span>
+                        </label>
+                        <select
+                          id="league-new-team-coach"
+                          value={newTeamForm.coach}
+                          onChange={(e) => setNewTeamForm((previous) => ({ ...previous, coach: e.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                        >
+                          <option value="">Select coach</option>
+                          {coaches.map((coach: any) => (
+                            <option key={coach._id || coach.id} value={coach._id || coach.id}>
+                              {coach.fullName || coach.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="space-y-3 border-t border-blue-100 pt-4 dark:border-blue-900/50">
+                <div className="flex min-h-[68px] items-start justify-between gap-3">
+                        <div>
+                          <h6 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                            <Users size={14} className="text-brand-600" />
+                            Assign Initial Players
+                          </h6>
+                          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                            Assigned players default to UNPAID so tournament fee invoices can be created when the tournament is saved.
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-brand-600 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300">
+                          {newTeamPlayerIds.length} Selected
+                        </span>
+                      </div>
+
+                      <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={newTeamPlayerSearch}
+                          onChange={(e) => setNewTeamPlayerSearch(e.target.value)}
+                          placeholder="Search available players..."
+                          className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:divide-slate-800">
+                        {availablePlayersLoading ? (
+                          <div className="py-6 text-center text-xs text-slate-400">Loading available players...</div>
+                        ) : filteredAvailablePlayers.length === 0 ? (
+                          <div className="py-6 text-center text-xs text-slate-400">
+                            {availablePlayers.length === 0 ? "No available players found." : "No players match your search."}
+                          </div>
+                        ) : (
+                          filteredAvailablePlayers.map((player: any) => {
+                            const playerId = String(player._id || player.id || "");
+                            const playerName = player.fullName || `${player.firstName || ""} ${player.lastName || ""}`.trim() || player.name || "Player";
+                            const isSelected = newTeamPlayerIds.includes(playerId);
+                            const paymentStatus = newTeamPlayerStatuses[playerId] || "UNPAID";
+
+                            return (
+                              <div
+                                key={playerId}
+                                onClick={() => playerId && toggleNewTeamPlayer(playerId)}
+                                className={`flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-xs transition-colors ${isSelected ? "bg-blue-50 text-brand-600 dark:bg-blue-950/40" : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"}`}
+                              >
+                                <div className="flex min-w-0 items-center gap-2.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => playerId && toggleNewTeamPlayer(playerId)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="h-4 w-4 shrink-0 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                                  />
+                                  <span className="truncate font-semibold">{playerName}</span>
+                                  {player.gender && <span className="shrink-0 text-[10px] text-slate-400 capitalize">({player.gender})</span>}
+                                </div>
+                                {isSelected ? (
+                                  <select
+                                    aria-label={`Payment status for ${playerName}`}
+                                    value={paymentStatus}
+                                    onChange={(e) => setNewTeamPlayerStatuses((previous) => ({ ...previous, [playerId]: e.target.value }))}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase outline-none ${paymentStatus === "PAID" ? "border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-800 dark:bg-emerald-950/40" : paymentStatus === "TRIAL" ? "border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-800 dark:bg-blue-950/40" : "border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-800 dark:bg-amber-950/40"}`}
+                                  >
+                                    <option value="UNPAID">UNPAID</option>
+                                    <option value="PAID">PAID</option>
+                                    <option value="TRIAL">TRIAL</option>
+                                  </select>
+                                ) : (
+                                  <span className="shrink-0 border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-400 dark:border-slate-700 dark:bg-slate-800/40">
+                                    NOT ASSIGNED
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCreateTeamFormOpen(false);
+                          setNewTeamForm({ teamName: "", teamType: "INTERNAL", ageGroup: "", coach: "" });
+                        }}
+                        disabled={isCreatingTeam}
+                        className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[11px] font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isCreatingTeam || (formData.termScope === "TERM" && !formData.term)}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-[11px] font-bold text-white transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Plus size={13} />
+                        {isCreatingTeam ? "Creating..." : "Create and Add Team"}
+                      </button>
+                    </div>
+                  </form>
+                )}
 
                 {/* Team Search filter */}
                 <div className="relative">
@@ -1649,20 +2065,20 @@ const LeagueManagement: React.FC = () => {
 
                 {/* Scrollable Team List */}
                 <div className="max-h-64 sm:max-h-72 overflow-y-auto no-scrollbar border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 divide-y divide-slate-100 dark:divide-slate-700/50">
-                  {!formData.term ? (
+                  {formData.termScope === "TERM" && !formData.term ? (
                     <div className="py-8 text-center text-slate-400 text-xs italic">
                       Please select an Academic Term in Step 1 to view available teams.
                     </div>
                   ) : teamsLoading ? (
                     <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-400 text-xs">
                       <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-500 border-t-transparent shadow-sm"></div>
-                      <span>Loading teams for selected term...</span>
+                      <span>{formData.termScope === "TERM" ? "Loading teams for selected term..." : "Loading teams..."}</span>
                     </div>
                   ) : filteredAcademyTeams.length === 0 ? (
                     <div className="py-8 text-center text-slate-400 text-xs italic">
                       {allAcademyTeams.length === 0
-                        ? "No academy teams found for this term."
-                        : "No teams match your search query."}
+                        ? (formData.termScope === "TERM" ? "No academy teams found for this term." : "No teams found.")
+                        : "No teams match your search."}
                     </div>
                   ) : (
                     filteredAcademyTeams.map((team: any) => {
@@ -1674,6 +2090,11 @@ const LeagueManagement: React.FC = () => {
                           : typeof team.coach === "string"
                             ? team.coach
                             : "Unassigned";
+                      const teamLeagueAssignments = (team.leagues || [])
+                        .filter((enrollment: any) => enrollment?.status !== "WITHDRAWN")
+                        .map((enrollment: any) => enrollment?.league)
+                        .filter((league: any) => league && typeof league === "object")
+                        .map((league: any) => `${league.name || "Tournament"}${league.season ? ` (${league.season})` : ""}`);
 
                       return (
                         <div
@@ -1702,6 +2123,14 @@ const LeagueManagement: React.FC = () => {
                               </span>
                               <span className="text-[10px] text-slate-400">
                                 Coach: {coachName} {team.players?.length ? `• ${team.players.length} players` : ""}
+                              </span>
+                              <span className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                                <Trophy size={10} className="shrink-0" />
+                                {teamsLoading
+                                  ? "Checking tournament assignments..."
+                                  : teamLeagueAssignments.length > 0
+                                    ? `Assigned in tournaments: ${teamLeagueAssignments.join(", ")}`
+                                    : "Not assigned in any tournament"}
                               </span>
                             </div>
                           </div>
@@ -1767,7 +2196,7 @@ const LeagueManagement: React.FC = () => {
                       ? "Committing..."
                       : isEditing
                         ? "Save Changes"
-                        : "Create League"}
+                        : "Create Tournament"}
                   </span>
                 </Button>
               )}
@@ -1790,8 +2219,8 @@ const LeagueManagement: React.FC = () => {
         onClose={() => setDeleteModalId(null)}
         onConfirm={confirmDelete}
         loading={deleteMutation.isPending}
-        title="Delete League"
-        message="Are you sure you want to delete this league? This action cannot be undone."
+        title="Delete Tournament"
+        message="Are you sure you want to delete this tournament? This action cannot be undone."
       />
     </div>
   );

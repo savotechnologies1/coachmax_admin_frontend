@@ -184,7 +184,7 @@ export const ChatList: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Communication centre</p>
-            <p className="mt-1 text-xs text-slate-500">Choose a term first, then open a class, team, league, holiday camp or direct chat.</p>
+            <p className="mt-1 text-xs text-slate-500">Choose a term first, then open a class, team, tournament, holiday camp or direct chat.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className="sr-only" htmlFor="chat-term-filter">Term</label>

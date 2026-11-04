@@ -17,8 +17,8 @@ export const TeamLeaguesView: React.FC<TeamLeaguesViewProps> = ({ leagues }) => 
     return (
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center mt-6">
         <Trophy className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Assigned Leagues</h3>
-        <p className="text-xs text-slate-500 mt-1">This team has not been enrolled in any leagues yet.</p>
+        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Assigned Tournaments</h3>
+        <p className="text-xs text-slate-500 mt-1">This team has not been enrolled in any tournaments yet.</p>
       </div>
     );
   }
@@ -27,7 +27,7 @@ export const TeamLeaguesView: React.FC<TeamLeaguesViewProps> = ({ leagues }) => 
     <div className="mt-6 space-y-4">
       <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
         <Trophy className="w-4 h-4 text-brand-500" />
-        Assigned Leagues ({validLeagues.length})
+        Assigned Tournaments ({validLeagues.length})
       </h3>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
@@ -42,7 +42,7 @@ export const TeamLeaguesView: React.FC<TeamLeaguesViewProps> = ({ leagues }) => 
 
           return (
             <div key={leagueEnrollment._id} className="border-b border-slate-200 dark:border-slate-800 last:border-0">
-              {/* League Header / Toggle */}
+              {/* Tournament Header / Toggle */}
               <div
                 className="flex flex-col sm:flex-row sm:items-center justify-between p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                 onClick={() => setExpandedLeague(isExpanded ? null : leagueEnrollment._id)}
@@ -57,7 +57,7 @@ export const TeamLeaguesView: React.FC<TeamLeaguesViewProps> = ({ leagues }) => 
                   </div>
                   <div>
                     <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                      {leagueEnrollment.leagueName || "Unknown League"}
+                      {leagueEnrollment.leagueName || "Unknown Tournament"}
                     </h4>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
@@ -92,7 +92,7 @@ export const TeamLeaguesView: React.FC<TeamLeaguesViewProps> = ({ leagues }) => 
                 <div className="bg-slate-50 dark:bg-slate-800/30 p-4 border-t border-slate-200 dark:border-slate-800">
                   <h5 className="text-[11px] font-bold uppercase tracking-widest text-slate-500 mb-3">Enrolled Players</h5>
                   {players.length === 0 ? (
-                    <p className="text-xs text-slate-500 italic">No players found in this league enrollment.</p>
+                    <p className="text-xs text-slate-500 italic">No players found in this tournament enrollment.</p>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {players.map((p: any, idx: number) => {

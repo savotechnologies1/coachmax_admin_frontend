@@ -9,6 +9,7 @@ import toast from "react-hot-toast";
 import { normalizeUploadImage, validateUploadFile } from "../../../../utils/fileValidation";
 import { getMediaUrl } from "../../../../utils/media";
 import ImageCropModal from "../../../../components/common/ImageCropModal";
+import { addDateOnlyDays, toDateOnly } from "../../../../utils/dateTime";
 
 interface LeagueDetailsInfoProps {
   league: League;
@@ -33,6 +34,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoRemoved, setLogoRemoved] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(
     league.logo ? getImageUrl(league.logo) : null
   );
@@ -53,7 +55,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
       ? league.registrationEndDate.split("T")[0]
       : (league.registrationCloseDate ? league.registrationCloseDate.split("T")[0] : ""),
     status: (league.status || "UPCOMING").toUpperCase(),
-    visibility: (league.visibility || "PUBLIC").toUpperCase(),
+    visibility: ["PRIVATE", "INTERNAL"].includes(String(league.visibility || "PUBLIC").toUpperCase()) ? "INTERNAL" : "PUBLIC",
     allowDraws: league.allowDraws ?? true,
     automaticLadderRecalculation: league.automaticLadderRecalculation ?? league.autoLadderCalculation ?? true,
     pointsForWin: league.pointsForWin ?? 3,
@@ -84,7 +86,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
         ? league.registrationEndDate.split("T")[0]
         : (league.registrationCloseDate ? league.registrationCloseDate.split("T")[0] : ""),
       status: (league.status || "UPCOMING").toUpperCase(),
-      visibility: (league.visibility || "PUBLIC").toUpperCase(),
+      visibility: ["PRIVATE", "INTERNAL"].includes(String(league.visibility || "PUBLIC").toUpperCase()) ? "INTERNAL" : "PUBLIC",
       allowDraws: league.allowDraws ?? true,
       automaticLadderRecalculation: league.automaticLadderRecalculation ?? league.autoLadderCalculation ?? true,
       pointsForWin: league.pointsForWin ?? 3,
@@ -106,6 +108,8 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
       setLogoPreview(null);
       setLogoError(false);
     }
+    setLogoFile(null);
+    setLogoRemoved(false);
   }, [league]);
 
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -122,6 +126,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
 
   const handleRemoveLogo = () => {
     setLogoFile(null);
+    setLogoRemoved(Boolean(league.logo));
     setLogoPreview(null);
     setLogoError(false);
     if (fileInputRef.current) {
@@ -131,13 +136,64 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (!canEdit) return;
+
+    const name = formData.name.trim();
+    const season = formData.season.trim();
+    if (!name || !season) {
+      toast.error("Tournament name and season are required.");
+      return;
+    }
+    if (!formData.startDate || !formData.endDate || formData.endDate < formData.startDate) {
+      toast.error("Enter valid tournament start and end dates.");
+      return;
+    }
+    if (formData.registrationStartDate && formData.registrationEndDate && formData.registrationEndDate < formData.registrationStartDate) {
+      toast.error("Registration closing date must be on or after the opening date.");
+      return;
+    }
+    if (![formData.numberOfRounds, formData.groupCount, formData.numberOfFields, formData.matchDuration].every((value) => Number.isInteger(value) && value >= 1)) {
+      toast.error("Rounds, groups, fields, and match duration must be positive whole numbers.");
+      return;
+    }
+    if (![formData.breakBetweenMatches, formData.pointsForWin, formData.pointsForDraw].every((value) => Number.isFinite(value) && value >= 0)) {
+      toast.error("Break time and ladder points must be zero or greater.");
+      return;
+    }
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(formData.startTime)) {
+      toast.error("Enter a valid default start time.");
+      return;
+    }
+
+    let sessionDates = (league.sessionDates || []).map((date) => toDateOnly(date)).filter(Boolean);
+    const datesMatchForm = sessionDates.length === formData.numberOfRounds && sessionDates.every((date) => date >= formData.startDate && date <= formData.endDate);
+    if (!datesMatchForm) {
+      const startMillis = Date.parse(`${formData.startDate}T00:00:00Z`);
+      const endMillis = Date.parse(`${formData.endDate}T00:00:00Z`);
+      const availableDays = Math.floor((endMillis - startMillis) / 86_400_000);
+      if (availableDays < formData.numberOfRounds - 1) {
+        toast.error("The tournament date range must provide at least one date for each round.");
+        return;
+      }
+      sessionDates = Array.from({ length: formData.numberOfRounds }, (_, round) => {
+        const offset = formData.numberOfRounds === 1
+          ? 0
+          : Math.round((availableDays * round) / (formData.numberOfRounds - 1));
+        return addDateOnlyDays(formData.startDate, offset);
+      });
+    }
+
     updateMutation.mutate({
       data: {
         ...formData,
+        name,
+        season,
+        sessionDates,
         competitionScope: formData.type,
         registrationOpenDate: formData.registrationStartDate,
         registrationCloseDate: formData.registrationEndDate,
         autoLadderCalculation: formData.automaticLadderRecalculation,
+        ...(logoRemoved ? { logo: "" } : {}),
       },
       file: logoFile || undefined,
     });
@@ -148,7 +204,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            League Details & Configuration
+            Tournament Details & Configuration
           </h2>
           <p className="text-xs text-slate-500 font-medium">
             General parameters, schedule timelines, and ladder scoring rules.
@@ -182,7 +238,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                League Name
+                Tournament Name
               </label>
               <input
                 type="text"
@@ -239,10 +295,10 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
               />
             </div>
 
-            {/* League Logo Upload */}
+            {/* Tournament Logo Upload */}
             <div className="md:col-span-2">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                League Logo / Crest (Optional)
+                Tournament Logo / Crest (Optional)
               </label>
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center justify-center overflow-hidden shrink-0">
@@ -293,6 +349,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
         if (fileInputRef.current) fileInputRef.current.value = "";
       }} onCrop={(cropped) => {
         setLogoFile(cropped);
+        setLogoRemoved(false);
         setLogoPreview(URL.createObjectURL(cropped));
         setLogoError(false);
         setLogoCropFile(null);
@@ -314,7 +371,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                League Start Date
+                Tournament Start Date
               </label>
               <DateInput
                 type="date"
@@ -327,7 +384,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
 
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                League End Date
+                Tournament End Date
               </label>
               <DateInput
                 type="date"
@@ -528,7 +585,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-5">
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                League Status
+                Tournament Status
               </label>
               <select
                 disabled={!canEdit}
@@ -599,7 +656,7 @@ export const LeagueDetailsInfo: React.FC<LeagueDetailsInfoProps> = ({ league }) 
               />
               <div>
                 <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                  Allow Draws in League Matches
+                  Allow Draws in Tournament Matches
                 </span>
                 <span className="text-[11px] text-slate-400">
                   When enabled, tied scores award points rather than penalty shootouts.

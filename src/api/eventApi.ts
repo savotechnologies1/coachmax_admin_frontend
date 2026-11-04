@@ -74,8 +74,15 @@ export const updateCampDayNote = async (eventId: string, date: string, note: str
   return response.data;
 };
 
-export const getEventAttendanceGrid = async (eventId: string) => {
-  const response = await apiClient.get(`/api/admin/events/${eventId}/attendance-grid`);
+export const setCampDayCancellation = async (eventId: string, date: string, reason: string, isCancelled = true) => {
+  const response = await apiClient.patch(`/api/admin/events/${eventId}/cancel-day`, { date, reason, isCancelled });
+  return response.data;
+};
+
+export const getEventAttendanceGrid = async (eventId: string, selectedDate?: string) => {
+  const response = await apiClient.get(`/api/admin/events/${eventId}/attendance-grid`, {
+    params: selectedDate ? { selectedDate } : undefined,
+  });
   return response.data;
 };
 
@@ -91,6 +98,11 @@ export const markEventBulkAttendance = async (eventId: string, data: { sessionDa
 
 export const getEventRegistrationDetails = async (registrationId: string) => {
   const response = await apiClient.get(`/api/admin/events/registrations/${registrationId}`);
+  return response.data;
+};
+
+export const updateEventRegistrationSessions = async (registrationId: string, selectedSessionIds: string[]) => {
+  const response = await apiClient.patch(`/api/admin/events/registrations/${registrationId}/sessions`, { selectedSessionIds });
   return response.data;
 };
 

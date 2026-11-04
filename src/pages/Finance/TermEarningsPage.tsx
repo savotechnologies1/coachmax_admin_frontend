@@ -116,7 +116,7 @@ const STREAM_CONFIG: Record<
     border: "border-blue-200 dark:border-blue-800/60",
   },
   LEAGUES: {
-    label: "Leagues & Tournaments",
+    label: "Tournaments",
     icon: Trophy,
     color: "text-amber-600 dark:text-amber-400",
     bg: "bg-amber-50 dark:bg-amber-950/30",
@@ -395,7 +395,7 @@ export default function TermEarningsPage() {
               </span>
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Multi-stream financial analytics across Academies, Leagues, Camps & Store with Handshake scholarship tracking.
+              Multi-stream financial analytics across Academies, Tournaments, Camps & Store with Handshake scholarship tracking.
             </p>
           </div>
 
@@ -475,7 +475,7 @@ export default function TermEarningsPage() {
                 {scopeMode === "COMPARE"
                   ? "Side-by-side comparative growth analytics between two terms with net delta and player conversion tracking."
                   : scopeMode === "ALL_TIME"
-                  ? "Lifetime consolidated financial overview aggregating all academic terms, leagues, holiday camps, and store orders."
+                  ? "Lifetime consolidated financial overview aggregating all academic terms, tournaments, holiday camps, and store orders."
                   : "Comprehensive financial overview tracking expected nominal revenue, handshake concessions, approved collections, and prospective trials."}
               </p>
             </div>
@@ -924,7 +924,7 @@ export default function TermEarningsPage() {
                   );
                 })()}
 
-                {/* 2. Leagues & Tournaments */}
+                {/* 2. Tournaments */}
                 {(() => {
                   const data = streamData.leagues || {};
                   const exp = data.expected || 0;
@@ -936,7 +936,7 @@ export default function TermEarningsPage() {
                         <div className="flex items-center gap-2">
                           <Trophy className="w-4 h-4 text-amber-500" />
                           <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                            Leagues & Tournaments
+                            Tournaments
                           </span>
                         </div>
                         <span className="text-xs font-black text-slate-900 dark:text-white">
@@ -1074,7 +1074,7 @@ export default function TermEarningsPage() {
                 {[
                   { id: "ALL", label: "All Streams" },
                   { id: "ACADEMY", label: "Academy Classes" },
-                  { id: "LEAGUES", label: "Leagues" },
+                  { id: "LEAGUES", label: "Tournaments" },
                   { id: "CAMPS", label: "Holiday Camps" },
                   { id: "STORE", label: "Store Orders" },
                 ].map((s) => (

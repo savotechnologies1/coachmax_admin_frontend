@@ -89,7 +89,7 @@ const LeagueFixturesAccordion = ({ league, searchQuery, getTeamName, handleOpenE
                        </div>
                     </td></tr>
                   ) : filteredFixtures.length === 0 ? (
-                    <tr><td colSpan={4} className="text-center py-10 text-gray-500 font-medium italic bg-slate-50 dark:bg-slate-900/50">No fixtures found for this league.</td></tr>
+                    <tr><td colSpan={4} className="text-center py-10 text-gray-500 font-medium italic bg-slate-50 dark:bg-slate-900/50">No fixtures found for this tournament.</td></tr>
                   ) : (
                     filteredFixtures.map((fixture: any) => (
                       <tr key={fixture._id} className="border-b border-slate-50 last:border-0 dark:border-slate-800/40 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all bg-white dark:bg-slate-900">
@@ -335,7 +335,7 @@ const FixtureManagement: React.FC = () => {
           </svg>
           <input
             type="text"
-            placeholder="Search leagues..."
+            placeholder="Search tournaments..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-none outline-none focus:border-brand-500 bg-white dark:bg-slate-800 dark:text-white transition-colors shadow-sm"
@@ -350,7 +350,7 @@ const FixtureManagement: React.FC = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-2 border-brand-500 border-t-transparent shadow-sm"></div>
            </div>
         ) : filteredLeagues.length === 0 ? (
-           <div className="text-center py-20 text-gray-500 font-medium italic">No leagues found.</div>
+           <div className="text-center py-20 text-gray-500 font-medium italic">No tournaments found.</div>
         ) : (
           filteredLeagues.map((league: any) => (
             <LeagueFixturesAccordion 
@@ -381,7 +381,7 @@ const FixtureManagement: React.FC = () => {
           <div className="md:col-span-6 space-y-4">
             
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2 ml-1">League / Event</label>
+              <label className="block text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2 ml-1">Tournament / Event</label>
               <select
                 value={formData.league}
                 onChange={(e) => setFormData({ ...formData, league: e.target.value, homeTeam: "", awayTeam: "", round: 1, field: "Field 1" })}
@@ -389,7 +389,7 @@ const FixtureManagement: React.FC = () => {
                 className="w-full rounded-none border border-slate-100 bg-slate-50 px-5 py-3 text-sm font-bold focus:bg-white focus:border-brand-500 outline-none transition-all appearance-none cursor-pointer"
                 required
               >
-                <option value="">Select League/Event</option>
+                <option value="">Select Tournament/Event</option>
                 {leagues.map((l: any) => (
                     <option key={l._id} value={l._id}>{l.name}</option>
                 ))}

@@ -22,7 +22,7 @@ function normalizeMatch(match: Match & { __v?: number }): Match {
 export const getLeagueMasterData = async (leagueId: string): Promise<BackendLeagueData> => {
   const res = await leagueService.getLeagueData(leagueId);
   const data = res?.data || res;
-  if (!data || !(data.league || data.details)) throw new Error("The server returned incomplete league data. Please retry.");
+  if (!data || !(data.league || data.details)) throw new Error("The server returned incomplete tournament data. Please retry.");
   return { ...data, league: data.league || data.details, details: data.details || data.league };
 };
 
@@ -39,27 +39,33 @@ export const updateLeagueDetails = async (
   const formData = new FormData();
   if (payload.name) formData.append("name", payload.name);
   if (payload.season) formData.append("season", payload.season);
+  if (payload.logo === "") formData.append("removeLeagueLogo", "true");
   if (payload.type || payload.competitionScope) {
     formData.append("competitionScope", payload.type || payload.competitionScope || "NATIONAL");
     formData.append("type", payload.type || payload.competitionScope || "NATIONAL");
   }
   if (payload.description !== undefined) formData.append("description", payload.description);
-  if (payload.startDate) formData.append("startDate", payload.startDate);
-  if (payload.endDate) formData.append("endDate", payload.endDate);
-  if (payload.registrationStartDate || payload.registrationOpenDate) {
+  if (payload.startDate !== undefined) formData.append("startDate", payload.startDate || "");
+  if (payload.endDate !== undefined) formData.append("endDate", payload.endDate || "");
+  const registrationStartDate = payload.registrationStartDate ?? payload.registrationOpenDate;
+  if (registrationStartDate !== undefined) {
     formData.append(
       "registrationStartDate",
-      payload.registrationStartDate || payload.registrationOpenDate || ""
+      registrationStartDate || ""
     );
   }
-  if (payload.registrationEndDate || payload.registrationCloseDate) {
+  const registrationEndDate = payload.registrationEndDate ?? payload.registrationCloseDate;
+  if (registrationEndDate !== undefined) {
     formData.append(
       "registrationEndDate",
-      payload.registrationEndDate || payload.registrationCloseDate || ""
+      registrationEndDate || ""
     );
   }
   if (payload.status) formData.append("status", payload.status);
-  if (payload.visibility) formData.append("visibility", payload.visibility);
+  if (payload.visibility) {
+    const visibility = String(payload.visibility).toUpperCase();
+    formData.append("visibility", visibility === "INTERNAL" ? "PRIVATE" : visibility);
+  }
   if (payload.pointsForWin !== undefined) formData.append("pointsForWin", String(payload.pointsForWin));
   if (payload.pointsForDraw !== undefined) formData.append("pointsForDraw", String(payload.pointsForDraw));
   if (payload.allowDraws !== undefined) formData.append("allowDraws", String(payload.allowDraws));
@@ -69,6 +75,17 @@ export const updateLeagueDetails = async (
       String(payload.automaticLadderRecalculation)
     );
   }
+  if (payload.fixtureFormat !== undefined) formData.append("fixtureFormat", payload.fixtureFormat);
+  if (payload.numberOfRounds !== undefined) formData.append("numberOfRounds", String(payload.numberOfRounds));
+  if (payload.groupCount !== undefined) formData.append("groupCount", String(payload.groupCount));
+  if (payload.numberOfFields !== undefined) formData.append("numberOfFields", String(payload.numberOfFields));
+  if (payload.matchDuration !== undefined) formData.append("matchDuration", String(payload.matchDuration));
+  if (payload.breakBetweenMatches !== undefined) formData.append("breakBetweenMatches", String(payload.breakBetweenMatches));
+  if (payload.startTime !== undefined) formData.append("startTime", payload.startTime);
+  if (payload.generationType !== undefined) formData.append("generationType", payload.generationType);
+  if (payload.fee !== undefined) formData.append("fee", String(payload.fee));
+  if (payload.venue !== undefined) formData.append("venue", payload.venue);
+  if (payload.sessionDates !== undefined) formData.append("sessionDates", JSON.stringify(payload.sessionDates));
   if (file) {
     formData.append("leagueLogo", file);
   }

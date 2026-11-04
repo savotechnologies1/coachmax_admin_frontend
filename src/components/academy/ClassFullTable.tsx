@@ -15,11 +15,12 @@ import { chatApi } from "../../services/chatApi";
 import ChatActionButton from "../chat/ChatActionButton";
 import { getPlayerStatusTextClass, StatusIcon, StatusUpdateMenuList } from "../common/StatusColorCode";
 import { AttendanceCellFlag, AttendanceStatusDropdown } from "../common/AttendanceReasonMenu";
-import { Copy, Pencil, Trash2 } from "lucide-react";
+import { Ban, CalendarCheck, CheckCircle2, Copy, Eye, FileText, Mail, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { getMediaUrl, getMediaFallback } from "../../utils/media";
 import { formatDateOnly, toDateOnly } from "../../utils/dateTime";
 import { sortPlayersByPaymentStatus } from "../../utils/paymentStatus";
 import { useCoachAccess } from "../../hooks/useCoachAccess";
+import { updateClassSessionDay } from "../../api/adminApi";
 
 interface ClassFullTableProps {
   classId: string;
@@ -73,6 +74,12 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
     playerName?: string;
   } | null>(null);
   const [attendanceMenuPos, setAttendanceMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [openDayMenu, setOpenDayMenu] = useState<string | null>(null);
+  const [dayMenuPos, setDayMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [selectedDayOnly, setSelectedDayOnly] = useState<string | null>(null);
+  const [dayActionDialog, setDayActionDialog] = useState<{ sessionDate: string; action: "NOTE" | "CANCEL" } | null>(null);
+  const [dayActionText, setDayActionText] = useState("");
+  const [dayActionPending, setDayActionPending] = useState(false);
 
   const updatePosition = () => {
     if (!openMenuId) return;
@@ -168,6 +175,32 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [openAttendanceMenu]);
+
+  useEffect(() => {
+    if (!openDayMenu) {
+      setDayMenuPos(null);
+      return;
+    }
+    const menu = document.getElementById("portal-class-day-menu");
+    const trigger = document.getElementById(`day-action-trigger-${instanceId || classId}-${openDayMenu}`);
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (menu && !menu.contains(event.target as Node) && trigger && !trigger.contains(event.target as Node)) {
+        setOpenDayMenu(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenDayMenu(null);
+    };
+    const handleScroll = () => setOpenDayMenu(null);
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [openDayMenu, instanceId, classId]);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounter = useRef(0);
   const removeClassMutation = useRemoveClassFromPlayer();
@@ -257,6 +290,9 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
     const weekday = normalized ? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date(`${normalized}T00:00:00Z`).getUTCDay()] : "";
     return weekday.toUpperCase() === occurrenceDay.toUpperCase();
   });
+  const sessionDetails = schedule.sessionDetails || {};
+  const visibleSessions = selectedDayOnly ? sessions.filter((date: string) => date === selectedDayOnly) : sessions;
+  const isSessionCancelled = (date: string) => sessionDetails[date]?.status === "CANCELLED";
   const players = sortPlayersByPaymentStatus(
     schedule.players || [],
     (player: any) => player.paymentStatus || player.status
@@ -308,6 +344,10 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
     playerName?: string
   ) => {
     e.stopPropagation();
+    if (isSessionCancelled(sessionDate)) {
+      toast.error("This class session is cancelled; attendance cannot be changed.");
+      return;
+    }
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const menuWidth = 220;
     const menuHeight = 240;
@@ -343,15 +383,101 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
   };
 
   const handleMarkAllPresent = (sessionDate: string) => {
+    if (isSessionCancelled(sessionDate)) {
+      toast.error("This class session is cancelled.");
+      return;
+    }
     const records = players.map((p: any) => ({
       player: p.playerId,
       status: "PRESENT",
     }));
 
+    if (!records.length) {
+      toast.error("No players are assigned to this class.");
+      return;
+    }
+
     markBulkMutation.mutate({
       sessionDate,
       records,
     });
+  };
+
+  const handleOpenDayMenu = (sessionDate: string, event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = 208;
+    const estimatedHeight = 270;
+    setDayMenuPos({
+      top: rect.bottom + estimatedHeight > window.innerHeight ? Math.max(8, rect.top - estimatedHeight) : rect.bottom + 4,
+      left: Math.max(8, Math.min(rect.right + 4 - width, window.innerWidth - width - 8)),
+    });
+    setOpenDayMenu((current) => current === sessionDate ? null : sessionDate);
+  };
+
+  const openDayDialog = (sessionDate: string, action: "NOTE" | "CANCEL") => {
+    const details = sessionDetails[sessionDate] || {};
+    setDayActionDialog({ sessionDate, action });
+    setDayActionText(action === "NOTE" ? details.note || "" : details.cancellationReason || "");
+    setOpenDayMenu(null);
+  };
+
+  const notifyClassParents = async (sessionDate: string, action: "CANCEL" | "RESTORE", reason?: string) => {
+    const dateLabel = formatDateOnly(sessionDate, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    const message = action === "CANCEL"
+      ? `Class cancelled for ${dateLabel}. Reason: ${reason}`
+      : `Class on ${dateLabel} is back on as scheduled.`;
+    await chatApi.broadcastToClass(classId, message);
+  };
+
+  const handleSaveDayAction = async () => {
+    if (!dayActionDialog) return;
+    const { sessionDate, action } = dayActionDialog;
+    const text = dayActionText.trim();
+    if (action === "CANCEL" && !text) {
+      toast.error("Add a cancellation reason so families know why class is cancelled.");
+      return;
+    }
+    setDayActionPending(true);
+    try {
+      await updateClassSessionDay(classId, {
+        sessionDate,
+        action,
+        ...(action === "NOTE" ? { note: text } : { reason: text }),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["classFullTable", classId] });
+      setDayActionDialog(null);
+      if (action === "CANCEL") {
+        try {
+          await notifyClassParents(sessionDate, "CANCEL", text);
+          toast.success("Class cancelled; the reason was posted to class chat and notifications sent to parents.");
+        } catch (error: any) {
+          toast.error(`Class cancelled, but the chat notification could not be sent: ${error?.response?.data?.message || error.message || "Please retry from class chat."}`);
+        }
+      } else {
+        toast.success("Admin note saved for this class date.");
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || error.message || "Unable to update this class date.");
+    } finally {
+      setDayActionPending(false);
+    }
+  };
+
+  const handleRestoreClassDay = async (sessionDate: string) => {
+    setOpenDayMenu(null);
+    try {
+      await updateClassSessionDay(classId, { sessionDate, action: "RESTORE" });
+      await queryClient.invalidateQueries({ queryKey: ["classFullTable", classId] });
+      try {
+        await notifyClassParents(sessionDate, "RESTORE");
+        toast.success("Class restored; parents have been notified in class chat.");
+      } catch (error: any) {
+        toast.error(`Class restored, but the chat notification could not be sent: ${error?.response?.data?.message || error.message || "Please retry from class chat."}`);
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || error.message || "Unable to restore this class date.");
+    }
   };
 
   const formatDateLabel = (dateStr: string) => {
@@ -478,6 +604,22 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
                 className="flex items-center gap-1.5 border border-white/20 hover:bg-white/10 text-white px-3 py-1.5 rounded-[4px] text-[10px] font-semibold transition-all active:scale-95 cursor-pointer ml-2 shadow-sm"
               />
             )}
+            {access.can("communication", "create") && access.can("parents", "read") && (
+              <button
+                type="button"
+                title="Email players in this class"
+                aria-label="Email players in this class"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  const params = new URLSearchParams({ audienceType: "CLASS", audienceId: classId });
+                  navigate(`/email-campaigns?${params.toString()}`);
+                }}
+                className="ml-1 inline-flex items-center gap-1.5 border border-white/20 px-3 py-1.5 text-[10px] font-semibold text-white transition-colors hover:bg-white/10"
+              >
+                <Mail size={13} />
+                Email
+              </button>
+            )}
           </div>
           <div className="ml-2 pl-3 border-l border-white/10 shrink-0 flex items-center gap-1">
             {onEditClass && (
@@ -544,6 +686,14 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
       {/* Attendance Grid Table */}
       {isExpanded && (
         <div className="overflow-x-auto custom-scrollbar">
+          {selectedDayOnly && (
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-blue-50/70 px-3 py-2 text-xs dark:border-slate-800 dark:bg-blue-950/20">
+              <span className="font-semibold text-slate-700 dark:text-slate-200">
+                Showing attendance for {formatDateOnly(selectedDayOnly, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              </span>
+              <button type="button" onClick={() => setSelectedDayOnly(null)} className="font-bold text-[#0047FF] hover:underline">Show all days</button>
+            </div>
+          )}
           {isError && <div role="alert" className="p-4 text-sm text-rose-600">Unable to load the class roster. <button type="button" className="underline" onClick={() => refetch()}>Retry</button></div>}
           {isLoading && <div role="status" className="p-4 text-sm">Loading class roster...</div>}
           <table className="w-full text-left border-separate border-spacing-0 text-[11px]">
@@ -560,25 +710,34 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
                 <th className="sticky left-[75px] z-20 bg-[#f8fafc] dark:bg-slate-900 py-2.5 px-2.5 min-w-[160px] w-[160px] max-w-[160px] border-b border-slate-100 dark:border-slate-800">Player</th>
                 <th className="sticky left-[235px] z-20 bg-[#f8fafc] dark:bg-slate-900 py-2.5 px-1.5 text-center min-w-[75px] w-[75px] max-w-[75px] border-b border-slate-100 dark:border-slate-800">DOB</th>
                 <th className="sticky left-[310px] z-20 bg-[#f8fafc] dark:bg-slate-900 py-2.5 px-1 text-center min-w-[50px] w-[50px] max-w-[50px] border-b border-slate-100 dark:border-slate-800 shadow-[4px_0_10px_-4px_rgba(0,0,0,0.1)]">Cond</th>
-                {sessions.map((sessionDate: string, idx: number) => {
+                {visibleSessions.map((sessionDate: string) => {
                   const formatted = formatDateLabel(sessionDate);
+                  const details = sessionDetails[sessionDate] || {};
+                  const isCancelled = details.status === "CANCELLED";
+                  const hasAdminNote = Boolean(details.note);
                   return (
-                    <th key={sessionDate} className="py-2.5 px-1.5 text-center min-w-[50px] font-semibold border-l border-slate-100 dark:border-slate-800/40 relative group">
-                      <div className="flex flex-col items-center">
-                        <span className="text-[8px] text-slate-400 font-bold">{idx + 1}</span>
-                        <span className="text-slate-500">{formatted.day}</span>
-                        <span className="text-slate-500 font-bold">{formatted.date}</span>
+                    <th key={sessionDate} title={isCancelled ? `Class cancelled: ${details.cancellationReason || "No reason provided"}` : hasAdminNote ? `Admin note: ${details.note}` : undefined} className={`py-2 px-1.5 text-center min-w-[58px] font-semibold border-l relative ${isCancelled ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300" : "border-slate-100 dark:border-slate-800/40"}`}>
+                      <div className="flex items-start justify-center gap-0.5">
+                        <div className="flex flex-col items-center">
+                          <span className="text-[8px] text-slate-400 font-bold">{sessions.indexOf(sessionDate) + 1}</span>
+                          <span className={isCancelled ? "text-rose-700 dark:text-rose-300" : "text-slate-500"}>{formatted.day}</span>
+                          <span className={`font-bold ${isCancelled ? "text-rose-700 dark:text-rose-300" : "text-slate-500"}`}>{formatted.date}</span>
+                        </div>
+                        {canMarkAttendance && (
+                          <button
+                            id={`day-action-trigger-${instanceId || classId}-${sessionDate}`}
+                            type="button"
+                            aria-label={`Actions for ${formatDateOnly(sessionDate, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}`}
+                            aria-expanded={openDayMenu === sessionDate}
+                            onClick={(event) => handleOpenDayMenu(sessionDate, event)}
+                            className={`-mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center border transition-colors ${openDayMenu === sessionDate ? "border-blue-200 bg-blue-50 text-[#0047FF]" : "border-transparent text-slate-400 hover:border-slate-200 hover:bg-white hover:text-slate-700 dark:hover:border-slate-700 dark:hover:bg-slate-800"}`}
+                          >
+                            <MoreVertical size={13} />
+                          </button>
+                        )}
                       </div>
-                      {/* Mark All Present button on hover */}
-                      {canMarkAttendance && <button
-                        onClick={() => handleMarkAllPresent(sessionDate)}
-                        className="absolute inset-0 bg-white/90 dark:bg-slate-900/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Mark all present"
-                      >
-                        <svg className="w-4 h-4 text-[#0047FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                        </svg>
-                      </button>}
+                      {isCancelled && <span className="mt-1 block text-[7px] font-black uppercase tracking-wide text-rose-600 dark:text-rose-300">Cancelled</span>}
+                      {hasAdminNote && <FileText size={10} className="mx-auto mt-1 text-amber-500" aria-label="Admin note saved" />}
                     </th>
                   );
                 })}
@@ -671,20 +830,29 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
                       <span className="text-slate-500 font-semibold text-xs">No</span>
                     )}
                   </td>
-                  {sessions.map((sessionDate: string) => {
+                  {visibleSessions.map((sessionDate: string) => {
                     const status = row.attendance?.[sessionDate] || "NOT_MARKED";
                     const attDetail = row.attendanceDetails?.[sessionDate];
                     const reason = attDetail?.reason || (typeof row.attendance?.[sessionDate] === 'object' ? row.attendance[sessionDate].reason : "");
                     const markedByParent = attDetail?.markedByParent || false;
+                    const details = sessionDetails[sessionDate] || {};
+                    const isCancelled = details.status === "CANCELLED";
 
                     return (
                       <td
                         key={sessionDate}
-                        className={`relative py-2 px-1.5 border-l border-slate-50 dark:border-slate-800/20 transition-colors group/cell ${canMarkAttendance ? "cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/50" : ""}`}
-                        onClick={canMarkAttendance ? (e) => handleToggleAttendance(row.playerId, sessionDate, status, e, reason, markedByParent, row.name) : undefined}
+                        title={isCancelled ? `Class cancelled: ${details.cancellationReason || "No reason provided"}` : undefined}
+                        className={`relative py-2 px-1.5 border-l transition-colors group/cell ${isCancelled ? "border-rose-100 bg-rose-50/70 dark:border-rose-900/30 dark:bg-rose-950/20" : "border-slate-50 dark:border-slate-800/20"} ${canMarkAttendance && !isCancelled ? "cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/50" : ""}`}
+                        onClick={canMarkAttendance && !isCancelled ? (e) => handleToggleAttendance(row.playerId, sessionDate, status, e, reason, markedByParent, row.name) : undefined}
                       >
-                        <AttendanceCellFlag reason={reason} markedByParent={markedByParent} status={status} />
-                        {renderStatusIcon(status)}
+                        {isCancelled ? (
+                          <div className="flex justify-center text-rose-500" aria-label="Class cancelled"><Ban size={13} /></div>
+                        ) : (
+                          <>
+                            <AttendanceCellFlag reason={reason} markedByParent={markedByParent} status={status} />
+                            {renderStatusIcon(status)}
+                          </>
+                        )}
                       </td>
                     );
                   })}
@@ -806,7 +974,7 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={6 + sessions.length} className="text-center py-4 text-sm text-slate-500">
+                  <td colSpan={6 + visibleSessions.length} className="text-center py-4 text-sm text-slate-500">
                     No players in this class.
                   </td>
                 </tr>
@@ -816,6 +984,127 @@ export default function ClassFullTable({ classId, timeSlotStr, categoryId, progr
           </table>
         </div>
       )}
+
+      {openDayMenu && dayMenuPos && createPortal(
+        <div
+          id="portal-class-day-menu"
+          style={{ position: "fixed", top: `${dayMenuPos.top}px`, left: `${dayMenuPos.left}px` }}
+          className="z-[99999] max-h-[calc(100vh-16px)] w-[208px] overflow-y-auto border border-slate-200 bg-white py-1 shadow-2xl dark:border-slate-700 dark:bg-slate-800"
+        >
+          {(() => {
+            const details = sessionDetails[openDayMenu] || {};
+            const isCancelled = details.status === "CANCELLED";
+            const dateLabel = formatDateOnly(openDayMenu, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+            return (
+              <>
+                <div className="border-b border-slate-100 px-3 py-2 dark:border-slate-700">
+                  <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-400">Day actions</span>
+                  <span className="block text-xs font-bold text-slate-800 dark:text-white">{dateLabel}</span>
+                  {isCancelled && <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold uppercase text-rose-600"><Ban size={11} /> Class cancelled</span>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedDayOnly(openDayMenu); setOpenDayMenu(null); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <Eye size={14} className="text-[#0047FF]" /> View only this day
+                </button>
+                {canMarkAttendance && (
+                  <button
+                    type="button"
+                    disabled={isCancelled || markBulkMutation.isPending}
+                    onClick={() => { setOpenDayMenu(null); handleMarkAllPresent(openDayMenu); }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    <CheckCircle2 size={14} className="text-emerald-500" />
+                    {markBulkMutation.isPending ? "Marking present..." : "Mark all present"}
+                  </button>
+                )}
+                {access.can("communication", "create") && access.can("parents", "read") && (
+                  <div onClickCapture={() => setOpenDayMenu(null)}>
+                    <ChatActionButton
+                      contextLabel={`${schedule.className || "Class"} · ${dateLabel}`}
+                      ensureRoom={() => chatApi.openClassChat(classId)}
+                      buttonText="Day chat"
+                      title={`Open class chat for ${dateLabel}`}
+                      className="flex w-full items-center gap-2 border-0 border-t border-slate-100 bg-transparent px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
+                    />
+                  </div>
+                )}
+                {canMarkAttendance && (
+                  <button
+                    type="button"
+                    onClick={() => openDayDialog(openDayMenu, "NOTE")}
+                    className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    <FileText size={14} className="text-amber-500" /> {details.note ? "Edit admin note" : "Add admin note"}
+                  </button>
+                )}
+                {canMarkAttendance && (isCancelled ? (
+                  <button
+                    type="button"
+                    onClick={() => handleRestoreClassDay(openDayMenu)}
+                    className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-emerald-700 hover:bg-emerald-50 dark:border-slate-700 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+                  >
+                    <CalendarCheck size={14} /> Restore class
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => openDayDialog(openDayMenu, "CANCEL")}
+                    className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-slate-700 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                  >
+                    <Ban size={14} /> Cancel class
+                  </button>
+                ))}
+              </>
+            );
+          })()}
+        </div>,
+        document.body
+      )}
+
+      <Modal
+        isOpen={Boolean(dayActionDialog)}
+        onClose={() => { if (!dayActionPending) setDayActionDialog(null); }}
+        className="max-w-md p-6"
+      >
+        <div className="pr-8">
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+            {dayActionDialog?.action === "CANCEL" ? "Cancel class session" : "Admin note"}
+          </h3>
+          {dayActionDialog && <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+            {formatDateOnly(dayActionDialog.sessionDate, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+          </p>}
+        </div>
+        <label htmlFor="class-day-action-text" className="mt-5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+          {dayActionDialog?.action === "CANCEL" ? "Cancellation reason (required)" : "Staff-only note"}
+        </label>
+        <textarea
+          id="class-day-action-text"
+          value={dayActionText}
+          onChange={(event) => setDayActionText(event.target.value)}
+          rows={4}
+          maxLength={dayActionDialog?.action === "CANCEL" ? 500 : 1000}
+          required={dayActionDialog?.action === "CANCEL"}
+          placeholder={dayActionDialog?.action === "CANCEL" ? "For example: Class is cancelled today due to severe weather." : "Add an internal note for this class date..."}
+          className="mt-2 w-full resize-none border border-slate-200 bg-white p-3 text-sm text-slate-900 outline-none focus:border-[#0047FF] dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+        />
+        <div className="mt-1 flex justify-between gap-3 text-[10px] text-slate-400">
+          <span>{dayActionDialog?.action === "CANCEL" ? "Parents of enrolled players will receive a chat message and notification." : "Only staff can see this note."}</span>
+          <span className="shrink-0">{dayActionText.length}/{dayActionDialog?.action === "CANCEL" ? 500 : 1000}</span>
+        </div>
+        <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-700">
+          <Button variant="outline" onClick={() => setDayActionDialog(null)} disabled={dayActionPending}>Cancel</Button>
+          <Button
+            onClick={handleSaveDayAction}
+            disabled={dayActionPending || (dayActionDialog?.action === "CANCEL" && !dayActionText.trim())}
+            className={dayActionDialog?.action === "CANCEL" ? "bg-rose-600 hover:bg-rose-700 disabled:bg-rose-600/40" : ""}
+          >
+            {dayActionPending ? "Saving..." : dayActionDialog?.action === "CANCEL" ? "Cancel class" : "Save note"}
+          </Button>
+        </div>
+      </Modal>
 
       <Modal isOpen={isConfirmModalOpen} onClose={() => setIsConfirmModalOpen(false)} className="max-w-2xl p-6">
         <div className="w-full">

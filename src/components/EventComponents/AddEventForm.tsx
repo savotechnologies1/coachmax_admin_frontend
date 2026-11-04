@@ -551,7 +551,7 @@ const AddEventForm: React.FC<AddEventFormProps> = ({ eventId }) => {
                     aria-describedby={validationErrors.eventType ? "event-type-error" : undefined}
                     options={[
                       { value: "TOURNAMENT", label: "Tournament" },
-                      { value: "LEAGUE", label: "League" },
+                      { value: "LEAGUE", label: "Tournament" },
                       { value: "CAMP", label: "Holiday Camp" }
                     ]}
                     placeholder="Select Type"

@@ -71,7 +71,7 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ leagueId }) => {
     return (
       <div className="bg-white dark:bg-slate-900 rounded-b-xl border border-t-0 border-slate-200 dark:border-slate-800 p-12 text-center text-slate-400">
         <div className="animate-spin rounded-full h-8 w-8 border-2 border-brand-500 border-t-transparent mx-auto mb-2" />
-        <span className="text-xs font-semibold">Loading League Statistics...</span>
+        <span className="text-xs font-semibold">Loading Tournament Statistics...</span>
       </div>
     );
   }
@@ -191,7 +191,7 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ leagueId }) => {
       {/* Top Header */}
       <div>
         <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-          League Statistics
+          Tournament Statistics
         </h2>
         <p className="text-xs text-slate-500 font-medium">
           Comprehensive match telemetry, team scoring distributions, and top player performance rankings.
@@ -272,7 +272,7 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ leagueId }) => {
               </h3>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Live league rankings for Top Scorers (Goals), Playmakers (Assists), and League MVPs with their team.
+              Live tournament rankings for Top Scorers (Goals), Playmakers (Assists), and Tournament MVPs with their team.
             </p>
           </div>
 
@@ -345,7 +345,7 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ leagueId }) => {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                      League Top Performer
+                      Tournament Top Performer
                     </span>
                   </div>
                   <h4 className="text-lg font-black text-white mt-1">

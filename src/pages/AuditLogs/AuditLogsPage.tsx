@@ -273,7 +273,7 @@ export default function AuditLogsPage() {
               className="rounded-none border border-gray-300 bg-white px-4 py-2.5 text-xs font-bold uppercase outline-none focus:border-[#0047FF] dark:border-gray-700 dark:bg-gray-900 dark:text-white cursor-pointer"
             >
               <option value="">All areas</option>
-              {(data?.filters?.entityTypes || ["Attendance", "User", "Class", "Team", "League", "Event", "Product", "Invoice", "Admin"]).map((type) => <option key={type} value={type}>{type.replace(/([a-z])([A-Z])/g, "$1 $2")}</option>)}
+              {(data?.filters?.entityTypes || ["Attendance", "User", "Class", "Team", "League", "Event", "Product", "Invoice", "Admin"]).map((type) => <option key={type} value={type}>{type === "League" ? "Tournament" : type.replace(/([a-z])([A-Z])/g, "$1 $2")}</option>)}
             </select>
             <select aria-label="Filter by person" value={actorFilter} onChange={(event) => { setActorFilter(event.target.value); setPage(1); }} className="rounded border border-gray-300 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900"><option value="">All people</option>{data?.filters?.actors?.map((actor) => <option key={actor._id} value={actor._id}>{actor.name || actor.email} ({actor.role})</option>)}</select>
             <select aria-label="Filter by role" value={roleFilter} onChange={(event) => { setRoleFilter(event.target.value); setPage(1); }} className="rounded border border-gray-300 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900"><option value="">All roles</option><option value="SUPER_ADMIN">Super Admin</option><option value="ADMIN">Admin</option><option value="COACH">Coach</option><option value="UNVERIFIED">Unverified sign-in</option></select>

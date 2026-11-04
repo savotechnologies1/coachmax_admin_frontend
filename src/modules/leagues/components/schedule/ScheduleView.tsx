@@ -22,6 +22,7 @@ import {
   X,
   Info,
   ShieldCheck,
+  XCircle,
 } from "lucide-react";
 import { Match, MatchStatus, GenerateFixturesResponse, MatchGoal } from "../../types/league";
 import {
@@ -38,6 +39,7 @@ import { useLeaguePermissions } from "../../hooks/useLeaguePermissions";
 import { Modal } from "../../../../components/ui/modal";
 import Button from "../../../../components/ui/button/Button";
 import { toast } from "react-hot-toast";
+import { chatApi } from "../../../../services/chatApi";
 import { APP_TIME_ZONE, formatTimestampDate, formatDateOnly, formatTime, todayDateOnly, toDateOnly, zonedDateTimeToUtcISOString } from "../../../../utils/dateTime";
 
 interface ScheduleViewProps {
@@ -88,7 +90,7 @@ const getGoalScorerName = (scorer: any) => {
   if (scorer.firstName || scorer.lastName) {
     return `${scorer.firstName || ""} ${scorer.lastName || ""}`.trim();
   }
-  if (scorer.name) return scorer.name;
+  if (scorer.name) return scorer.jerseyNumber ? `${scorer.name} (#${scorer.jerseyNumber})` : scorer.name;
   return "Goal Scorer";
 };
 
@@ -99,8 +101,17 @@ const getGoalAssistName = (assist: any) => {
   if (assist.firstName || assist.lastName) {
     return `${assist.firstName || ""} ${assist.lastName || ""}`.trim();
   }
-  if (assist.name) return assist.name;
+  if (assist.name) return assist.jerseyNumber ? `${assist.name} (#${assist.jerseyNumber})` : assist.name;
   return null;
+};
+
+const getRosterOptionId = (player: any) => player.isExternal
+  ? `external:${player._id || player.id}`
+  : player._id || player.id;
+
+const getRosterOptionName = (player: any) => {
+  const name = player.fullName || (player.firstName ? `${player.firstName} ${player.lastName || ""}`.trim() : "") || player.name || "Unknown Player";
+  return player.isExternal && player.jerseyNumber ? `${name} (#${player.jerseyNumber})` : name;
 };
 
 export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
@@ -180,6 +191,9 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  const [cancelMatchTarget, setCancelMatchTarget] = useState<Match | null>(null);
+  const [matchCancellationReason, setMatchCancellationReason] = useState("");
+  const [savingMatchCancellation, setSavingMatchCancellation] = useState(false);
 
   // Add Match Form
   const [addForm, setAddForm] = useState({
@@ -210,6 +224,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
     status: "Scheduled" as MatchStatus,
     referee: "",
     notes: "",
+    cancellationReason: "",
   });
 
   // Result Entry Form with Statistics
@@ -358,9 +373,10 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
       awayTeamId: match.awayTeam._id,
       homeScore: match.homeScore ?? 0,
       awayScore: match.awayScore ?? 0,
-      status: match.status,
+      status: ({ SCHEDULED: "Scheduled", LIVE: "Live", COMPLETED: "Completed", POSTPONED: "Postponed", CANCELLED: "Cancelled" } as Record<string, MatchStatus>)[String(match.status).toUpperCase()] || match.status,
       referee: match.referee || "",
       notes: match.notes || "",
+      cancellationReason: match.cancellationReason || "",
     });
     setActionMenu(null);
     setIsEditModalOpen(true);
@@ -373,8 +389,15 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
     const initialGoals: MatchGoal[] = (match.goals || []).map((g: any) => ({
       id: g._id || g.id || Math.random().toString(),
       teamId: typeof g.team === 'object' && g.team ? g.team._id : (g.teamId || g.team),
-      scorerId: typeof g.scorer === 'object' && g.scorer ? g.scorer._id : (g.scorerId || g.scorer),
-      assistId: typeof g.assist === 'object' && g.assist ? g.assist._id : (g.assistId || g.assist),
+      scorerId: g.unknownScorer ? "unknown" : g.externalScorerId ? `external:${g.externalScorerId}` : typeof g.scorer === 'object' && g.scorer ? g.scorer._id : (g.scorerId || g.scorer),
+      externalScorerId: g.externalScorerId,
+      externalScorerName: g.externalScorerName,
+      externalScorerJerseyNumber: g.externalScorerJerseyNumber,
+      unknownScorer: Boolean(g.unknownScorer),
+      assistId: g.externalAssistId ? `external:${g.externalAssistId}` : typeof g.assist === 'object' && g.assist ? g.assist._id : (g.assistId || g.assist),
+      externalAssistId: g.externalAssistId,
+      externalAssistName: g.externalAssistName,
+      externalAssistJerseyNumber: g.externalAssistJerseyNumber,
       minute: g.minute ?? 1,
     }));
 
@@ -520,6 +543,10 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
       toast.error("Home and Away team cannot be the same");
       return;
     }
+    if (String(editForm.status).toUpperCase() === "CANCELLED" && !editForm.cancellationReason.trim()) {
+      toast.error("Add a cancellation reason before saving this match");
+      return;
+    }
 
     const homeTeamObj = teams.find((t) => t._id === editForm.homeTeamId);
     const awayTeamObj = teams.find((t) => t._id === editForm.awayTeamId);
@@ -561,6 +588,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
           status: editForm.status,
           referee: editForm.referee,
           notes: editForm.notes,
+          cancellationReason: editForm.status === "Cancelled" || String(editForm.status).toUpperCase() === "CANCELLED" ? editForm.cancellationReason.trim() : "",
           fixtureSource: "MANUAL",
           isManuallyModified: true,
         },
@@ -572,6 +600,42 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
         },
       }
     );
+  };
+
+  const handleCancelMatch = async () => {
+    if (!cancelMatchTarget) return;
+    const reason = matchCancellationReason.trim();
+    if (!reason) {
+      toast.error("Add a reason before cancelling this match");
+      return;
+    }
+    setSavingMatchCancellation(true);
+    const target = cancelMatchTarget;
+    try {
+      await updateMatchMutation.mutateAsync({
+        matchId: target._id,
+        data: { version: target.version, status: "CANCELLED", cancellationReason: reason },
+      });
+      setCancelMatchTarget(null);
+      setMatchCancellationReason("");
+      try {
+        const chat = await chatApi.openLeagueChat(leagueId);
+        const room = chat?.data?.room || chat?.data;
+        if (!room?._id) throw new Error(chat?.message || "Tournament chat is unavailable");
+        const dateLabel = target.matchDateFormatted || (target.matchDate ? formatDateOnly(target.matchDate) : "the scheduled date");
+        await chatApi.sendMessage(
+          room._id,
+          `Tournament match cancelled: ${target.homeTeam.teamName || target.homeTeam.name} vs ${target.awayTeam.teamName || target.awayTeam.name} on ${dateLabel}. Reason: ${reason}`
+        );
+        toast.success("Cancellation saved and tournament parents notified in chat");
+      } catch (chatError: any) {
+        toast.error(`Match cancelled, but the chat notification failed: ${chatError?.response?.data?.message || chatError?.message || "Please post the update in Tournament Chat."}`);
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || error?.message || "Failed to cancel match");
+    } finally {
+      setSavingMatchCancellation(false);
+    }
   };
 
   // Submit Result Entry (with optional keepOpen parameter for "Submit Goal" button)
@@ -610,7 +674,19 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
       // Force scores to match goal objects to prevent 400 Bad Request
       payloadHomeScore = resultForm.goals.filter(g => g.teamId === selectedMatch.homeTeam._id).length;
       payloadAwayScore = resultForm.goals.filter(g => g.teamId === selectedMatch.awayTeam._id).length;
-      payloadGoals = resultForm.goals;
+      payloadGoals = resultForm.goals.map((goal) => {
+        const unknownScorer = goal.scorerId === "unknown";
+        const externalScorerId = goal.scorerId?.startsWith("external:") ? goal.scorerId.slice("external:".length) : "";
+        const externalAssistId = goal.assistId?.startsWith("external:") ? goal.assistId.slice("external:".length) : "";
+        return {
+          ...goal,
+          scorerId: unknownScorer || externalScorerId ? "" : goal.scorerId,
+          unknownScorer,
+          assistId: externalAssistId ? "" : goal.assistId,
+          externalScorerId,
+          externalAssistId,
+        };
+      });
     } else {
       // If no goals are provided but scores are > 0, omit the goals array completely
       // If scores are 0-0, we can safely send an empty array to clear any existing goals
@@ -687,7 +763,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
       link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `League_Schedule_${type === "EXCEL" ? "Export.csv" : "Export.csv"}`);
+      link.setAttribute("download", `Tournament_Schedule_${type === "EXCEL" ? "Export.csv" : "Export.csv"}`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -959,7 +1035,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
                   No Matches Scheduled Yet
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Start organizing your league schedule. Choose whether you'd like to auto-generate random fixtures or create matches manually.
+                  Start organizing your tournament schedule. Choose whether you'd like to auto-generate random fixtures or create matches manually.
                 </p>
               </div>
 
@@ -1036,7 +1112,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-slate-400 italic">No matches have been scheduled yet for this league.</p>
+                <p className="text-xs text-slate-400 italic">No matches have been scheduled yet for this tournament.</p>
               )}
             </div>
           ) : (
@@ -1308,7 +1384,14 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
 
                                 {/* Status */}
                                 <td className="py-4 px-4">
-                                  {getStatusBadge(match.status)}
+                                  <div className="flex flex-col items-start gap-1">
+                                    {getStatusBadge(match.status)}
+                                    {String(match.status).toUpperCase() === "CANCELLED" && match.cancellationReason && (
+                                      <span className="max-w-40 text-[10px] leading-tight text-rose-600 dark:text-rose-300" title={match.cancellationReason}>
+                                        Reason: {match.cancellationReason}
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
 
                                 {/* Actions Dropdown */}
@@ -1321,7 +1404,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
                                         return;
                                       }
                                       const rect = e.currentTarget.getBoundingClientRect();
-                                      const menuHeight = 135;
+                                      const menuHeight = 190;
                                       const menuWidth = 160;
                                       // Open upwards if not enough space below
                                       const openUpwards =
@@ -1384,8 +1467,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
                                           {homeMatchGoals.length > 0 ? (
                                             <div className="space-y-2">
                                               {homeMatchGoals.map((g: any, gIdx: number) => {
-                                                const scorerName = getGoalScorerName(g.scorer || g.scorerId);
-                                                const assistName = getGoalAssistName(g.assist || g.assistId);
+                                                const scorerName = g.unknownScorer ? "Unknown / Other" : getGoalScorerName(g.scorer || (g.externalScorerName ? { name: g.externalScorerName, jerseyNumber: g.externalScorerJerseyNumber } : g.scorerId));
+                                                const assistName = getGoalAssistName(g.assist || (g.externalAssistName ? { name: g.externalAssistName, jerseyNumber: g.externalAssistJerseyNumber } : g.assistId));
                                                 const minuteStr = g.minute ? `${g.minute}'` : "";
                                                 return (
                                                   <div
@@ -1443,8 +1526,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
                                           {awayMatchGoals.length > 0 ? (
                                             <div className="space-y-2">
                                               {awayMatchGoals.map((g: any, gIdx: number) => {
-                                                const scorerName = getGoalScorerName(g.scorer || g.scorerId);
-                                                const assistName = getGoalAssistName(g.assist || g.assistId);
+                                                const scorerName = g.unknownScorer ? "Unknown / Other" : getGoalScorerName(g.scorer || (g.externalScorerName ? { name: g.externalScorerName, jerseyNumber: g.externalScorerJerseyNumber } : g.scorerId));
+                                                const assistName = getGoalAssistName(g.assist || (g.externalAssistName ? { name: g.externalAssistName, jerseyNumber: g.externalAssistJerseyNumber } : g.assistId));
                                                 const minuteStr = g.minute ? `${g.minute}'` : "";
                                                 return (
                                                   <div
@@ -1515,7 +1598,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
             className="w-40 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1.5 text-xs text-left animate-in fade-in zoom-in-95 duration-100 select-none ring-1 ring-black/5"
             onClick={(e) => e.stopPropagation()}
           >
-            {canEnterResults && (
+            {canEnterResults && !["CANCELLED", "CANCELED"].includes(String(actionMenu.match.status).toUpperCase()) && (
               <button
                 onClick={() => {
                   const m = actionMenu.match;
@@ -1542,6 +1625,20 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
                   <Edit2 size={14} className="text-blue-500" />
                   <span>Edit Match</span>
                 </button>
+
+                {!(["LIVE", "COMPLETED", "CANCELLED"].includes(String(actionMenu.match.status).toUpperCase())) && (
+                  <button
+                    onClick={() => {
+                      setCancelMatchTarget(actionMenu.match);
+                      setMatchCancellationReason(actionMenu.match.cancellationReason || "");
+                      setActionMenu(null);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-2.5 text-rose-600 dark:text-rose-300 font-semibold cursor-pointer transition-colors"
+                  >
+                    <XCircle size={14} />
+                    <span>Cancel Match</span>
+                  </button>
+                )}
 
                 <div className="border-t border-slate-100 dark:border-slate-700 mt-1 pt-1">
                   <button
@@ -1805,6 +1902,20 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
               </select>
             </div>
           </div>
+
+          {String(editForm.status).toUpperCase() === "CANCELLED" && (
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-rose-600">Cancellation reason *</span>
+              <textarea
+                value={editForm.cancellationReason}
+                onChange={(event) => setEditForm({ ...editForm, cancellationReason: event.target.value })}
+                rows={3}
+                maxLength={1000}
+                placeholder="Why is this match cancelled?"
+                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-medium text-slate-900 outline-none focus:border-rose-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+            </label>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -2092,9 +2203,10 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
                               className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-[11px] text-slate-800 dark:text-slate-200"
                             >
                               <option value="">Select Player</option>
+                              <option value="unknown">Unknown / Other</option>
                               {homePlayers.map((p: any) => (
-                                <option key={p._id || p.id} value={p._id || p.id}>
-                                  {p.fullName || (p.firstName ? `${p.firstName} ${p.lastName}` : "") || p.name || "Unknown Player"}
+                                <option key={p._id || p.id} value={getRosterOptionId(p)}>
+                                  {getRosterOptionName(p)}
                                 </option>
                               ))}
                             </select>
@@ -2126,8 +2238,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
                             >
                               <option value="">None</option>
                               {homePlayers.map((p: any) => (
-                                <option key={p._id || p.id} value={p._id || p.id}>
-                                  {p.fullName || (p.firstName ? `${p.firstName} ${p.lastName}` : "") || p.name || "Unknown Player"}
+                                <option key={p._id || p.id} value={getRosterOptionId(p)}>
+                                  {getRosterOptionName(p)}
                                 </option>
                               ))}
                             </select>
@@ -2207,9 +2319,10 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
                               className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-[11px] text-slate-800 dark:text-slate-200"
                             >
                               <option value="">Select Player</option>
+                              <option value="unknown">Unknown / Other</option>
                               {awayPlayers.map((p: any) => (
-                                <option key={p._id || p.id} value={p._id || p.id}>
-                                  {p.fullName || (p.firstName ? `${p.firstName} ${p.lastName}` : "") || p.name || "Unknown Player"}
+                                <option key={p._id || p.id} value={getRosterOptionId(p)}>
+                                  {getRosterOptionName(p)}
                                 </option>
                               ))}
                             </select>
@@ -2241,8 +2354,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
                             >
                               <option value="">None</option>
                               {awayPlayers.map((p: any) => (
-                                <option key={p._id || p.id} value={p._id || p.id}>
-                                  {p.fullName || (p.firstName ? `${p.firstName} ${p.lastName}` : "") || p.name || "Unknown Player"}
+                                <option key={p._id || p.id} value={getRosterOptionId(p)}>
+                                  {getRosterOptionName(p)}
                                 </option>
                               ))}
                             </select>
@@ -2489,6 +2602,45 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ leagueId }) => {
               );
             })()}
           </form>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={!!cancelMatchTarget}
+        onClose={() => { if (!savingMatchCancellation) setCancelMatchTarget(null); }}
+        className="max-w-[480px] p-6 rounded-xl shadow-2xl"
+      >
+        {cancelMatchTarget && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
+              <div className="rounded-lg bg-rose-50 p-2.5 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300"><XCircle size={21} /></div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Cancel tournament match</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {cancelMatchTarget.homeTeam.teamName || cancelMatchTarget.homeTeam.name} vs {cancelMatchTarget.awayTeam.teamName || cancelMatchTarget.awayTeam.name}
+                  {cancelMatchTarget.matchDateFormatted ? ` · ${cancelMatchTarget.matchDateFormatted}` : ""}
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300">This match will be marked cancelled. Tournament parents will receive this reason in chat and a notification.</p>
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">Cancellation reason *</span>
+              <textarea
+                value={matchCancellationReason}
+                onChange={(event) => setMatchCancellationReason(event.target.value)}
+                rows={4}
+                maxLength={1000}
+                placeholder="Why is this match cancelled?"
+                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-medium text-slate-900 outline-none focus:border-rose-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+            </label>
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+              <button type="button" onClick={() => setCancelMatchTarget(null)} disabled={savingMatchCancellation} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Keep match</button>
+              <button type="button" onClick={handleCancelMatch} disabled={savingMatchCancellation || !matchCancellationReason.trim()} className="rounded-lg bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-700 disabled:opacity-50">
+                {savingMatchCancellation ? "Cancelling..." : "Cancel match"}
+              </button>
+            </div>
+          </div>
         )}
       </Modal>
 

@@ -18,7 +18,7 @@ const PAGES: { title: string; path: string; module: AccessModule }[] = [
   { title: "Classes", path: "/classes", module: "classes" },
   { title: "Calendar", path: "/calendar", module: "classes" },
   { title: "Teams", path: "/teams", module: "teams" },
-  { title: "Leagues", path: "/leagues", module: "leagues" },
+  { title: "Tournaments", path: "/leagues", module: "leagues" },
   { title: "Fixtures", path: "/fixtures", module: "leagues" },
   { title: "Events", path: "/events", module: "events" },
   { title: "Products", path: "/products", module: "store" },
@@ -130,7 +130,7 @@ export default function GlobalSearch() {
             if (event.key === "ArrowUp") { event.preventDefault(); setActive((value) => Math.max(value - 1, 0)); }
             if (event.key === "Enter") { event.preventDefault(); if (flatItems[active]) choose(flatItems[active]); }
           }}
-          placeholder="Search players, leagues, products..."
+          placeholder="Search players, tournaments, products..."
           className="h-11 w-full rounded-lg border border-gray-200 bg-white !pl-11 !pr-16 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-400"
         />
         {query ? (

@@ -11,7 +11,7 @@ export const ACCESS_MODULES = [
   { key: "classes", label: "Classes", assigned: true },
   { key: "attendance", label: "Attendance", assigned: true },
   { key: "teams", label: "Teams", assigned: true },
-  { key: "leagues", label: "Leagues and fixtures", assigned: true },
+  { key: "leagues", label: "Tournaments and fixtures", assigned: true },
   { key: "events", label: "Events and camps", assigned: false },
   { key: "store", label: "Store and products", assigned: false },
   { key: "orders", label: "Orders", assigned: true },

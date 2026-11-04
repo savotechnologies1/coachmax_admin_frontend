@@ -184,7 +184,7 @@ export const AnalyticsGraphs: React.FC<AnalyticsGraphsProps> = ({ leagueId }) =>
               <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
                 Points Progression
               </h3>
-              <p className="text-xs text-slate-500">Cumulative league points across rounds.</p>
+              <p className="text-xs text-slate-500">Cumulative tournament points across rounds.</p>
             </div>
             <div className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-600">
               <TrendingUp size={16} />
