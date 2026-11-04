@@ -22,6 +22,8 @@ export interface League {
   _id: string;
   name: string;
   season: string;
+  year?: number | string;
+  termScope?: "TERM" | "INDEPENDENT";
   term?: string | { _id: string; year?: number; name?: string };
   type: LeagueType | string;
   competitionScope?: string;
@@ -85,6 +87,7 @@ export interface LeagueTeam {
   logo?: string;
   ageGroup?: string;
   teamType?: string;
+  externalPlayers?: Array<{ _id?: string; name: string; jerseyNumber: string; user?: string }>;
   coach?: CoachRef | string;
   coachEmail?: string;
   playersCount: number;
@@ -163,8 +166,15 @@ export interface MatchGoal {
   team?: string | PopulatedGoalTeam;
   scorerId?: string;
   scorer?: string | PopulatedGoalPlayer;
+  externalScorerId?: string;
+  externalScorerName?: string;
+  externalScorerJerseyNumber?: string;
+  unknownScorer?: boolean;
   assistId?: string;
   assist?: string | PopulatedGoalPlayer | null;
+  externalAssistId?: string;
+  externalAssistName?: string;
+  externalAssistJerseyNumber?: string;
   minute?: number;
 }
 
@@ -194,6 +204,7 @@ export interface Match {
   matchStatistics?: MatchStatistics;
   goals?: MatchGoal[];
   notes?: string;
+  cancellationReason?: string;
   fixtureSource?: FixtureSource | string;
   isManuallyModified?: boolean;
 }

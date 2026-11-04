@@ -18,7 +18,8 @@ import {
     Trash2,
     ChevronLeft,
     ChevronRight,
-    Plus
+    Plus,
+    Mail
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Dropdown } from "../../components/ui/dropdown/Dropdown";
@@ -402,16 +403,33 @@ export default function EventList() {
                                     )}
 
                                     <div className="mt-6 flex flex-col gap-4">
-                                        {event.createdBy && (
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-5 h-5 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                                                    <span className="text-[8px] font-bold text-gray-400">SA</span>
+                                        <div className="flex min-h-7 items-center justify-between gap-2">
+                                            {event.createdBy ? (
+                                                <div className="flex min-w-0 items-center gap-2">
+                                                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800">
+                                                        <span className="text-[8px] font-bold text-gray-400">SA</span>
+                                                    </div>
+                                                    <span className="truncate text-[9px] font-bold tracking-tighter text-gray-400">
+                                                        BY: {event.createdBy.name}
+                                                    </span>
                                                 </div>
-                                                <span className="text-[9px] font-bold text-gray-400 tracking-tighter truncate">
-                                                    BY: {event.createdBy.name}
-                                                </span>
-                                            </div>
-                                        )}
+                                            ) : <span />}
+                                            {can("communication", "create") && can("parents", "read") && (
+                                                <button
+                                                    type="button"
+                                                    title={`Email participants in ${event.title}`}
+                                                    aria-label={`Email participants in ${event.title}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const params = new URLSearchParams({ audienceType: "EVENT", audienceId: event._id });
+                                                        navigate(`/email-campaigns?${params.toString()}`);
+                                                    }}
+                                                    className="inline-flex shrink-0 items-center gap-1.5 border border-brand-200 bg-brand-50 px-2.5 py-1.5 text-[9px] font-bold text-brand-600 transition-colors hover:bg-brand-600 hover:text-white dark:border-brand-900 dark:bg-brand-950/30 dark:text-brand-300"
+                                                >
+                                                    <Mail size={12} /> Email
+                                                </button>
+                                            )}
+                                        </div>
 
                                         <div className="flex items-center justify-between border-t border-gray-50 dark:border-gray-800/40 pt-4">
                                             <div className="flex -space-x-2">

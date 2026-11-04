@@ -71,6 +71,9 @@ export default function TeamDetailsPage() {
     teamFee: "",
     year: new Date().getFullYear().toString(),
     term: "",
+    termScope: "TERM" as "TERM" | "INDEPENDENT",
+    startDate: "",
+    endDate: "",
     dayOfWeek: "Monday",
     startTime: "17:00",
     endTime: "18:30",
@@ -228,6 +231,9 @@ export default function TeamDetailsPage() {
       teamFee: feeVal,
       year: yearVal ? yearVal.toString() : "",
       term: team.term?._id || team.term || "",
+      termScope: team.termScope === "INDEPENDENT" || (!team.termScope && !team.term) ? "INDEPENDENT" : "TERM",
+      startDate: team.startDate ? toDateOnly(team.startDate) : "",
+      endDate: team.endDate ? toDateOnly(team.endDate) : "",
       dayOfWeek: team.dayOfWeek || "Monday",
       startTime: team.startTime || "17:00",
       endTime: team.endTime || "18:30",
@@ -244,7 +250,7 @@ export default function TeamDetailsPage() {
     }
 
     const hasRounds = (team.round !== undefined && team.round !== null) || (Array.isArray(team.sessionDates) && team.sessionDates.length > 0);
-    if (hasRounds) {
+    if (hasRounds || team.termScope === "INDEPENDENT" || (!team.termScope && !team.term)) {
       setScheduleMode("ROUNDS");
       const formattedDates = (team.sessionDates || []).map((d: string) => {
         try {
@@ -253,9 +259,9 @@ export default function TeamDetailsPage() {
           return d;
         }
       });
-      const validDates = formattedDates.length > 0 ? formattedDates : [todayDateOnly()];
+      const validDates = formattedDates.length > 0 ? formattedDates : (team.termScope === "INDEPENDENT" || (!team.termScope && !team.term) ? [] : [todayDateOnly()]);
       setSessionDates(validDates);
-      setRoundCount(team.round || validDates.length || 1);
+      setRoundCount(team.round || validDates.length || (validDates.length === 0 ? "" : 1));
     } else {
       setScheduleMode("TERM");
       setRoundCount(1);
@@ -286,6 +292,10 @@ export default function TeamDetailsPage() {
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!teamId) return;
+    if (!/^\d{4}$/.test(formData.year)) { toast.error("Enter a four-digit year."); return; }
+    if (formData.termScope === "TERM" && !formData.term) { toast.error("Select an academic term."); return; }
+    if (formData.termScope === "INDEPENDENT" && Boolean(formData.startDate) !== Boolean(formData.endDate)) { toast.error("Enter both team dates, or leave both blank."); return; }
+    if (formData.termScope === "INDEPENDENT" && formData.startDate && formData.endDate && formData.endDate < formData.startDate) { toast.error("End date must be on or after the start date."); return; }
     const payload = new FormData();
     payload.append("teamName", formData.teamName);
     if (formData.coach) payload.append("coach", formData.coach);
@@ -309,11 +319,12 @@ export default function TeamDetailsPage() {
       payload.append("year", formData.year);
     }
 
-    if (formData.term) {
-      payload.append("term", formData.term);
-    }
+    payload.append("termScope", formData.termScope);
+    payload.append("term", formData.termScope === "TERM" ? formData.term : "");
+    payload.append("startDate", formData.termScope === "INDEPENDENT" ? formData.startDate : "");
+    payload.append("endDate", formData.termScope === "INDEPENDENT" ? formData.endDate : "");
 
-    if (scheduleMode === "ROUNDS") {
+    if (scheduleMode === "ROUNDS" && (formData.termScope === "TERM" || sessionDates.some(Boolean))) {
       const validDates = sessionDates.filter(Boolean);
       const effectiveRound = Number(roundCount) || (validDates.length > 0 ? validDates.length : 1);
       payload.append("round", String(effectiveRound));
@@ -528,10 +539,12 @@ export default function TeamDetailsPage() {
                       Fee: ${team.fee || team.teamFee}
                     </span>
                   )}
-                  {team.term && (
+                  {team.term ? (
                     <span className="px-2.5 py-0.5 text-xs font-bold uppercase bg-purple-600 text-white tracking-wider">
-                      Term: {typeof team.term === 'object' ? (team.term.name || team.term.termName) : "Assigned"}
+                      Term: {team.term && typeof team.term === 'object' ? (team.term.name || team.term.termName) : "Academic Term"}
                     </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 text-xs font-bold uppercase bg-slate-600 text-white tracking-wider">Independent / No Term</span>
                   )}
                   {team.round ? (
                     <span className="px-2.5 py-0.5 text-xs font-bold uppercase bg-blue-500 text-white tracking-wider">
@@ -773,7 +786,7 @@ export default function TeamDetailsPage() {
             <h4 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">
               Edit Team Profile
             </h4>
-            <p className="text-xs text-slate-500 font-medium">Update team credentials, academic term, schedule, and venue details.</p>
+            <p className="text-xs text-slate-500 font-medium">Update team credentials, term link, schedule, and venue details.</p>
           </div>
         </div>
 
@@ -804,6 +817,26 @@ export default function TeamDetailsPage() {
                     <option value="INTERNAL">Our Team (Academy)</option>
                     <option value="EXTERNAL">External Team (Opponent)</option>
                   </select>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/40">
+                <span className="mb-2 block text-[11px] font-bold uppercase tracking-widest text-slate-500">Term Link</span>
+                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Team term link">
+                  {(["TERM", "INDEPENDENT"] as const).map((scope) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      aria-pressed={formData.termScope === scope}
+                      onClick={() => {
+                        setFormData({ ...formData, termScope: scope, term: scope === "INDEPENDENT" ? "" : formData.term });
+                        if (scope === "INDEPENDENT") setScheduleMode("ROUNDS");
+                      }}
+                      className={`border px-3 py-2 text-xs font-bold ${formData.termScope === scope ? "border-[#0047FF] bg-[#0047FF] text-white" : "border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"}`}
+                    >
+                      {scope === "TERM" ? "Academic Term" : "Independent / No Term"}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -839,20 +872,16 @@ export default function TeamDetailsPage() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2 ml-1">Year</label>
-                  <select
+                  <input
+                    type="number"
+                    min="1000"
+                    max="9999"
                     value={formData.year}
                     onChange={(e) => setFormData({ ...formData, year: e.target.value, term: "" })}
                     className="w-full rounded-none border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-slate-800 px-3 py-2.5 text-sm font-bold focus:bg-white focus:border-[#0047FF] outline-none transition-all appearance-none cursor-pointer dark:text-white"
-                  >
-                    <option value="">All Years</option>
-                    {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map((yr) => (
-                      <option key={yr} value={yr}>
-                        {yr}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
-                <div>
+                {formData.termScope === "TERM" && <div>
                   <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2 ml-1">Academic Term</label>
                   <select
                     value={formData.term}
@@ -866,8 +895,24 @@ export default function TeamDetailsPage() {
                       </option>
                     ))}
                   </select>
-                </div>
+                </div>}
               </div>
+
+              {formData.termScope === "INDEPENDENT" && (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">This team can operate outside academic terms. Dates are optional for a roster-only team.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="edit-team-start-date" className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2 ml-1">Start Date</label>
+                      <input id="edit-team-start-date" type="date" value={formData.startDate} onChange={(e) => { const startDate = e.target.value; setFormData({ ...formData, startDate, year: startDate ? startDate.slice(0, 4) : formData.year }); }} className="w-full rounded-none border border-gray-200 bg-white px-3 py-2.5 text-sm dark:border-gray-700 dark:bg-slate-800 dark:text-white" />
+                    </div>
+                    <div>
+                      <label htmlFor="edit-team-end-date" className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2 ml-1">End Date</label>
+                      <input id="edit-team-end-date" type="date" value={formData.endDate} onChange={(e) => setFormData({ ...formData, endDate: e.target.value })} className="w-full rounded-none border border-gray-200 bg-white px-3 py-2.5 text-sm dark:border-gray-700 dark:bg-slate-800 dark:text-white" />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Coaches & Leadership */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1000,7 +1045,7 @@ export default function TeamDetailsPage() {
                   >
                     By Round & Dates (Dynamic)
                   </button>
-                  <button
+                  {formData.termScope === "TERM" && <button
                     type="button"
                     onClick={() => setScheduleMode("TERM")}
                     className={`px-3 py-1 transition-all ${scheduleMode === "TERM"
@@ -1009,7 +1054,7 @@ export default function TeamDetailsPage() {
                       }`}
                   >
                     Term Schedule (Recurring)
-                  </button>
+                  </button>}
                 </div>
               )}
             </div>

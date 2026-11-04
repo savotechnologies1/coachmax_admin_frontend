@@ -71,7 +71,26 @@ export const useUpdateMatch = (leagueId: string) => {
   return useMutation({
     mutationFn: ({ matchId, data }: { matchId: string; data: Partial<Match> }) =>
       updateLeagueMatch(leagueId, matchId, data),
-    onSuccess: () => {
+    onSuccess: (updatedMatch: Match) => {
+      // Publish the saved fixture immediately so the schedule score and goal
+      // count update without waiting for a page reload or a background fetch.
+      if (updatedMatch?._id) {
+        queryClient.setQueryData<Match[]>(["leagueMatches", leagueId], (currentMatches) =>
+          currentMatches?.map((match) =>
+            match._id === updatedMatch._id ? { ...match, ...updatedMatch } : match
+          )
+        );
+        queryClient.setQueriesData<RoundSchedule[]>(
+          { queryKey: ["leagueSchedule", leagueId] },
+          (currentRounds) => currentRounds?.map((round) => ({
+            ...round,
+            matches: round.matches.map((match) =>
+              match._id === updatedMatch._id ? { ...match, ...updatedMatch } : match
+            ),
+          }))
+        );
+      }
+
       ["league", "leagueMaster", "leagueTeams", "leagueLadder", "leagueSchedule", "leagueStats", "leagueGraphs", "leagueMatches"].forEach((key) => queryClient.invalidateQueries({ queryKey: [key, leagueId] }));
       ["teams", "team", "teamPlayers", "playerProfile", "players"].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
       queryClient.invalidateQueries({ queryKey: ["leagueMatches", leagueId] });

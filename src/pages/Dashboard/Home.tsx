@@ -146,7 +146,7 @@ const quickActions = [
   { title: "Add Product", description: "Create a store item", path: "/add-product", icon: Package, tone: "bg-violet-50 text-violet-600 dark:bg-violet-950/40" },
   { title: "Add Event", description: "Schedule an event", path: "/add-event", icon: CalendarDays, tone: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40" },
   { title: "Add Team", description: "Manage academy teams", path: "/teams", icon: Shield, tone: "bg-amber-50 text-amber-600 dark:bg-amber-950/40" },
-  { title: "Add League", description: "Manage competitions", path: "/leagues", icon: Trophy, tone: "bg-rose-50 text-rose-600 dark:bg-rose-950/40" },
+  { title: "Add Tournament", description: "Manage competitions", path: "/leagues", icon: Trophy, tone: "bg-rose-50 text-rose-600 dark:bg-rose-950/40" },
   { title: "Add Class", description: "Schedule a class", path: "/classes", icon: Layers, tone: "bg-cyan-50 text-cyan-600 dark:bg-cyan-950/40" },
 ];
 
@@ -216,7 +216,7 @@ export default function Home() {
     const campStream = streams.campOnly || streams.camps || {};
     return [
       { key: "academy", label: "Classes", ...streams.academy },
-      { key: "leagues", label: "Leagues", ...streams.leagues },
+      { key: "leagues", label: "Tournaments", ...streams.leagues },
       { key: "campOnly", label: "Camps", ...campStream },
       { key: "sessions", label: "Sessions & events", ...streams.sessions },
       { key: "store", label: "Products", ...streams.store },

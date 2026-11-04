@@ -24,7 +24,7 @@ export default function LeagueDetails() {
       <div className="py-24 text-center">
         <div className="animate-spin rounded-full h-10 w-10 border-2 border-brand-500 border-t-transparent mx-auto mb-3" />
         <p className="text-xs font-bold uppercase tracking-widest text-slate-400 animate-pulse">
-          Loading League Module...
+          Loading Tournament Module...
         </p>
       </div>
     );
@@ -36,16 +36,16 @@ export default function LeagueDetails() {
         <div className="w-14 h-14 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4">
           <Trophy size={28} />
         </div>
-        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">League Not Found</h3>
+        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Tournament Not Found</h3>
         <p className="text-xs text-slate-500 mb-6">
-          Unable to locate details for the specified league ID.
+          Unable to locate details for the specified tournament ID.
         </p>
         <Link
           to="/leagues"
           className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors"
         >
           <ArrowLeft size={14} />
-          <span>Back to Leagues Management</span>
+          <span>Back to Tournaments Management</span>
         </Link>
       </div>
     );
@@ -54,7 +54,7 @@ export default function LeagueDetails() {
   return (
     <>
       <PageMeta
-        title={`CoachMax | ${league.name || "League Details"}`}
+        title={`CoachMax | ${league.name || "Tournament Details"}`}
         description={league.description || "Manage fixtures, ladder, teams, and analytics"}
       />
 

@@ -229,6 +229,22 @@ export const markBulkAttendance = async (classId: string, data: { sessionDate: s
   return res.data;
 };
 
+export const updateClassSessionDay = async (
+  classId: string,
+  data: { sessionDate: string; action: "NOTE" | "CANCEL" | "RESTORE"; note?: string; reason?: string }
+): Promise<any> => {
+  const res = await apiClient.post(`/api/admin/attendance/${classId}/day-action`, data);
+  return res.data;
+};
+
+export const updateTeamSessionDay = async (
+  teamId: string,
+  data: { sessionDate: string; action: "NOTE" | "CANCEL" | "RESTORE"; note?: string; reason?: string; leagueId?: string }
+): Promise<any> => {
+  const res = await apiClient.post(`/api/admin/team-attendance/${teamId}/day-action`, data);
+  return res.data;
+};
+
 export const getClassPlayers = async (classId: string): Promise<any> => {
   const res = await apiClient.get(`/api/admin/getClassPlayers/${classId}`);
   return res.data;
@@ -329,8 +345,8 @@ export const deleteNews = async (id: string): Promise<any> => {
 
 // ================= TEAMS =================
 
-export const getAllTeams = async (termId?: string, options?: { page?: number; limit?: number; search?: string }): Promise<any> => {
-  const params = { ...(termId ? { termId } : {}), page: options?.page || 1, limit: options?.limit || 100, search: options?.search || "" };
+export const getAllTeams = async (termId?: string, options?: { page?: number; limit?: number; search?: string; termScope?: "INDEPENDENT"; year?: string }): Promise<any> => {
+  const params = { ...(termId ? { termId } : {}), ...(options?.termScope ? { termScope: options.termScope } : {}), ...(options?.year ? { year: options.year } : {}), page: options?.page || 1, limit: options?.limit || 100, search: options?.search || "" };
   const res = await apiClient.get(ENDPOINTS.TEAMS, { params });
   if (options) return res.data;
   const combined = [...(res.data?.data || [])];
@@ -425,6 +441,21 @@ export const assignPlayerToTeam = async (
   return res.data;
 };
 
+export interface ExternalTeamPlayerInput {
+  _id?: string;
+  name: string;
+  jerseyNumber: string;
+  user?: string;
+}
+
+export const updateExternalTeamPlayers = async (
+  teamId: string,
+  externalPlayers: ExternalTeamPlayerInput[]
+): Promise<any> => {
+  const res = await apiClient.put(`/api/admin/teams/${teamId}/external-players`, { externalPlayers });
+  return res.data;
+};
+
 export const unassignPlayersFromTeam = async (teamId: string, playerIds: string | string[]): Promise<any> => {
   const ids = Array.isArray(playerIds) ? playerIds : [playerIds];
   const payload = {
@@ -498,8 +529,15 @@ export const deleteFixture = async (id: string): Promise<any> => {
 // ================= LEAGUES =================
 
 export const getAllLeagues = async (): Promise<any> => {
-  const res = await apiClient.get(ENDPOINTS.GET_ALL_LEAGUES);
-  return res.data;
+  const params = { page: 1, limit: 100 };
+  const res = await apiClient.get(ENDPOINTS.GET_ALL_LEAGUES, { params });
+  const combined = [...(res.data?.data || [])];
+  const pages = res.data?.pagination?.totalPages || 1;
+  for (let page = 2; page <= pages; page++) {
+    const next = await apiClient.get(ENDPOINTS.GET_ALL_LEAGUES, { params: { ...params, page } });
+    combined.push(...(next.data?.data || []));
+  }
+  return { ...res.data, data: combined };
 };
 
 export const createLeague = async (data: any): Promise<any> => {

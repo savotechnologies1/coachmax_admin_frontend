@@ -32,7 +32,9 @@ interface TeamsGridProps {
 export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
   const { data: teams = [], isLoading } = useLeagueTeams(leagueId);
   const { data: league } = useLeague(leagueId);
-  const termId = typeof league?.term === "object" ? league.term._id : league?.term;
+  const termId = league?.term && typeof league.term === "object" ? league.term._id : typeof league?.term === "string" ? league.term : "";
+  const independentTournament = league?.termScope === "INDEPENDENT" || (Boolean(league) && !termId);
+  const tournamentYear = league?.year ? String(league.year) : league?.startDate?.slice(0, 4) || "";
   const [createdTeamId, setCreatedTeamId] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const { data: coachesResponse } = useQuery({ queryKey: ["coaches"], queryFn: () => getAllCoaches() });
@@ -60,14 +62,15 @@ export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
 
   // Fetch all academy teams for "Select Existing Team"
   const { data: allTeamsData } = useQuery({
-    queryKey: ["allAcademyTeams", termId],
-    queryFn: () => getAllTeams(termId),
-    enabled: isAddModalOpen && !!termId,
+    queryKey: ["allAcademyTeams", termId, independentTournament, tournamentYear],
+    queryFn: () => getAllTeams(independentTournament ? undefined : termId),
+    enabled: isAddModalOpen && (independentTournament || !!termId),
   });
 
-  const allAcademyTeams: any[] = Array.isArray(allTeamsData)
+  const fetchedTeams: any[] = Array.isArray(allTeamsData)
     ? allTeamsData
     : allTeamsData?.data || [];
+  const allAcademyTeams = fetchedTeams;
 
   // Form for New Team
   const [newTeamForm, setNewTeamForm] = useState({
@@ -95,7 +98,7 @@ export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!termId) { toast.error("This league requires a term before teams can be added."); return; }
+    if (!independentTournament && !termId) { toast.error("This tournament requires a term before teams can be added."); return; }
     if (mode === "EXISTING") {
       if (!selectedExistingTeamId || teams.some((team) => team._id === selectedExistingTeamId)) { toast.error("Select a team that is not already enrolled."); return; }
       addTeamMutation.mutate([selectedExistingTeamId], { onSuccess: () => { setIsAddModalOpen(false); setSelectedExistingTeamId(""); } });
@@ -107,7 +110,15 @@ export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
       setIsCreating(true);
       if (!savedId) {
         const payload = new FormData();
-        payload.append("teamName", newTeamForm.name.trim()); payload.append("term", termId); payload.append("ageGroup", newTeamForm.ageGroup.trim());
+        payload.append("teamName", newTeamForm.name.trim());
+        payload.append("termScope", independentTournament ? "INDEPENDENT" : "TERM");
+        if (!independentTournament && termId) payload.append("term", termId);
+        if (tournamentYear) payload.append("year", tournamentYear);
+        if (independentTournament) {
+          if (league?.startDate) payload.append("startDate", league.startDate.slice(0, 10));
+          if (league?.endDate) payload.append("endDate", league.endDate.slice(0, 10));
+        }
+        payload.append("ageGroup", newTeamForm.ageGroup.trim());
         if (newTeamForm.coach) payload.append("coach", newTeamForm.coach);
         const created = await createTeam(payload);
         savedId = created?.data?._id;
@@ -176,7 +187,7 @@ export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
             Participating Teams ({teams.length})
           </h2>
           <p className="text-xs text-slate-500 font-medium">
-            Manage clubs, squads, and academies enrolled in this league.
+            Manage clubs, squads, and academies enrolled in this tournament.
           </p>
         </div>
 
@@ -216,7 +227,7 @@ export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
         <div className="py-16 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
           <Users size={32} className="mx-auto text-slate-300 mb-2" />
           <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No teams found</p>
-          <p className="text-xs text-slate-400">Add teams to participate in this league competition.</p>
+          <p className="text-xs text-slate-400">Add teams to participate in this tournament.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -330,7 +341,7 @@ export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
                       <button
                         onClick={() => handleOpenStatsModal(team)}
                         className="font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                        title="Override Team League Statistics"
+                        title="Override Team Tournament Statistics"
                       >
                         <Sliders size={13} />
                         <span>Edit Stats</span>
@@ -341,12 +352,12 @@ export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
                   {canManageTeams && (
                     <button
                       onClick={() => {
-                        if (confirm(`Remove ${teamName} from this league?`)) {
+                        if (confirm(`Remove ${teamName} from this tournament?`)) {
                           removeTeamMutation.mutate(team._id);
                         }
                       }}
                       className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors"
-                      title="Remove from League"
+                      title="Remove from Tournament"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -369,7 +380,7 @@ export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
             <Users size={20} />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Add Team To League</h3>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Add Team To Tournament</h3>
             <p className="text-xs text-slate-500">
               Select an existing academy team or register a guest team.
             </p>
@@ -478,7 +489,7 @@ export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
         </form>
       </Modal>
 
-      {/* ================= EDIT TEAM LEAGUE STATS MODAL ================= */}
+      {/* ================= EDIT TEAM TOURNAMENT STATS MODAL ================= */}
       <Modal
         isOpen={isStatsModalOpen}
         onClose={() => setIsStatsModalOpen(false)}
@@ -490,7 +501,7 @@ export const TeamsGrid: React.FC<TeamsGridProps> = ({ leagueId }) => {
           </div>
           <div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-              Edit Team League Statistics
+              Edit Team Tournament Statistics
             </h3>
             <p className="text-xs text-slate-500">
               {selectedTeamForStats?.teamName || selectedTeamForStats?.name || "Team"}

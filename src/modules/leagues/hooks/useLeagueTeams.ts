@@ -38,7 +38,7 @@ export const useAddTeamToLeague = (leagueId: string) => {
       queryClient.invalidateQueries({ queryKey: ["leagueTeams", leagueId] });
       queryClient.invalidateQueries({ queryKey: ["leagueLadder", leagueId] });
       queryClient.invalidateQueries({ queryKey: ["leagueStats", leagueId] });
-      toast.success("Team added to league");
+      toast.success("Team added to tournament");
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.message || err?.message || "Failed to add team");
@@ -57,7 +57,7 @@ export const useRemoveTeamFromLeague = (leagueId: string) => {
       queryClient.invalidateQueries({ queryKey: ["leagueTeams", leagueId] });
       queryClient.invalidateQueries({ queryKey: ["leagueLadder", leagueId] });
       queryClient.invalidateQueries({ queryKey: ["leagueStats", leagueId] });
-      toast.success("Team removed from league");
+      toast.success("Team removed from tournament");
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.message || err?.message || "Failed to remove team");
@@ -96,7 +96,7 @@ export const useUpdateLeagueTeamStats = (leagueId: string) => {
       queryClient.invalidateQueries({ queryKey: ["leagueLadder", leagueId] });
       queryClient.invalidateQueries({ queryKey: ["leagueStats", leagueId] });
       queryClient.invalidateQueries({ queryKey: ["leagueGraphs", leagueId] });
-      toast.success("Team league statistics updated successfully");
+      toast.success("Team tournament statistics updated successfully");
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.message || err?.message || "Failed to update team statistics");

@@ -58,6 +58,7 @@ const Transactions = lazy(() => import("./pages/Finance/Transactions"));
 const TermEarningsPage = lazy(() => import("./pages/Finance/TermEarningsPage"));
 const NotificationsPage = lazy(() => import("./pages/Notifications/NotificationsPage"));
 const CommunicationPage = lazy(() => import("./pages/Communication"));
+const EmailCampaignDashboard = lazy(() => import("./pages/Communication/EmailCampaignDashboard"));
 const TeamsManagementPage = lazy(() => import("./pages/Teams/TeamsManagementPage"));
 const TeamDetailsPage = lazy(() => import("./pages/Teams/TeamDetailsPage"));
 const LeaguesManagementPage = lazy(() => import("./pages/Teams/LeaguesManagementPage"));
@@ -180,6 +181,7 @@ export default function App() {
             <Route path="/communication" element={<CommunicationPage />} />
             <Route path="/messages" element={<CommunicationPage />} />
             <Route path="/announcements" element={<CommunicationPage />} />
+            <Route path="/email-campaigns" element={<EmailCampaignDashboard />} />
 
             {/* Others Page */}
             <Route path="/profile" element={<UserProfiles />} />

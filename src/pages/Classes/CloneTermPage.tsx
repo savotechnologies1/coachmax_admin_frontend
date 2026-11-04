@@ -85,7 +85,7 @@ const cloneStageLabel: Record<CloneProgress["stage"], string> = {
   preparing: "Preparing",
   classes: "Classes",
   teams: "Teams",
-  leagues: "Leagues",
+  leagues: "Tournaments",
   saving: "Saving",
   complete: "Complete",
 };
@@ -101,7 +101,7 @@ function TermInventory({ termId, info, loading, error, onRetry, accent }: {
   const counts = info?.counts;
   const groups = info ? [
     { title: "Classes", items: info.classes.map((item) => ({ id: item._id, name: item.name, detail: [item.dayOfWeek, item.startTime].filter(Boolean).join(" · "), count: `${item.playerCount} players` })) },
-    { title: "Leagues", items: info.leagues.map((item) => ({ id: item._id, name: item.name, detail: item.season || "", count: `${item.teamCount} teams` })) },
+    { title: "Tournaments", items: info.leagues.map((item) => ({ id: item._id, name: item.name, detail: item.season || "", count: `${item.teamCount} teams` })) },
     { title: "Teams", items: info.teams.map((item) => ({ id: item._id, name: item.name, detail: item.leagueNames.join(", "), count: `${item.playerCount} players` })) },
   ] : [];
 
@@ -111,7 +111,7 @@ function TermInventory({ termId, info, loading, error, onRetry, accent }: {
         <div className={`text-sm font-black ${key === "leagues" ? accent === "blue" ? "text-[#0047FF]" : "text-emerald-600" : "text-slate-800 dark:text-white"}`}>
           {termId ? loading ? "…" : counts?.[key] ?? "—" : "—"}
         </div>
-        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{key}</div>
+        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{key === "leagues" ? "Tournaments" : key}</div>
       </div>)}
     </div>
     {termId && <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800" aria-live="polite">
@@ -501,7 +501,7 @@ export default function CloneTermPage() {
 
   const handleCloneClick = () => {
     if (totalSelectedItems === 0) {
-      errorToast("No classes or leagues selected for cloning.");
+      errorToast("No classes or tournaments selected for cloning.");
       return;
     }
     setShowConfirmModal(true);
@@ -555,7 +555,7 @@ export default function CloneTermPage() {
       }, setCloneProgress);
 
       if (response.success) {
-        successToast("Term data (classes, leagues & teams) cloned successfully!");
+        successToast("Term data (classes, tournaments & teams) cloned successfully!");
         await new Promise((resolve) => setTimeout(resolve, 600));
         setShowLoaderModal(false);
         navigate("/classes", {
@@ -610,12 +610,12 @@ export default function CloneTermPage() {
 
   return (
     <>
-      <PageMeta title="CoachMax | Clone Term" description="Clone classes, leagues, teams, and players to a new term" />
+      <PageMeta title="CoachMax | Clone Term" description="Clone classes, tournaments, teams, and players to a new term" />
       <div className="space-y-6" data-coachmax-form>
         <FormHeader
           icon={Layers}
           title="Clone Term"
-          description="Copy classes, leagues, teams, and player rosters to a new term."
+          description="Copy classes, tournaments, teams, and player rosters to a new term."
           actions={(
             <button
               type="button"
@@ -663,7 +663,7 @@ export default function CloneTermPage() {
                 <div className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-wide">
                   Review & Customize
                 </div>
-                <div className="text-[10px] text-slate-400 font-medium">Select classes, leagues & teams</div>
+                <div className="text-[10px] text-slate-400 font-medium">Select classes, tournaments & teams</div>
               </div>
             </div>
 
@@ -896,7 +896,7 @@ export default function CloneTermPage() {
                   <div>
                     <h4 className="font-bold text-xs text-slate-800 dark:text-white uppercase tracking-wider mb-1">How it works?</h4>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed max-w-[420px]">
-                      Copy all selected classes, leagues, teams, and player assignments to the target term. You can customize which items to include before confirming.
+                      Copy all selected classes, tournaments, teams, and player assignments to the target term. You can customize which items to include before confirming.
                     </p>
                   </div>
                 </div>
@@ -912,7 +912,7 @@ export default function CloneTermPage() {
                     <div className="w-9 h-9 rounded-none bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto mb-1.5 shadow-theme-xs">
                       <Trophy className="w-4 h-4" />
                     </div>
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Leagues</span>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Tournaments</span>
                   </div>
                   <div className="text-center">
                     <div className="w-9 h-9 rounded-none bg-purple-500/10 text-purple-600 flex items-center justify-center mx-auto mb-1.5 shadow-theme-xs">
@@ -973,7 +973,7 @@ export default function CloneTermPage() {
                 </div>
                 <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
                   <span className="text-slate-400 flex items-center gap-2 font-semibold">
-                    <Trophy className="w-4 h-4 text-amber-500" /> Leagues
+                    <Trophy className="w-4 h-4 text-amber-500" /> Tournaments
                   </span>
                   <span className="font-black text-[#0047FF]">
                     {sourceInfoQuery.data?.counts.leagues ?? "—"} / {targetInfoQuery.data?.counts.leagues ?? "—"}
@@ -1029,7 +1029,7 @@ export default function CloneTermPage() {
                 <div className="text-right">
                   <div className="text-xs font-bold text-slate-500 uppercase">Selected Summary</div>
                   <div className="text-sm font-black text-slate-800 dark:text-white">
-                    {totalSelectedClasses} Classes ({totalSelectedClassPlayers} P) • {totalSelectedLeagues} Leagues ({totalSelectedTeams} T, {totalSelectedLeaguePlayers} P)
+                    {totalSelectedClasses} Classes ({totalSelectedClassPlayers} P) • {totalSelectedLeagues} Tournaments ({totalSelectedTeams} T, {totalSelectedLeaguePlayers} P)
                   </div>
                 </div>
 
@@ -1043,7 +1043,7 @@ export default function CloneTermPage() {
               </div>
             </div>
 
-            {/* Sub-Tabs: All / Classes / Leagues */}
+            {/* Sub-Tabs: All / Classes / Tournaments */}
             <div className="flex bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 gap-1">
               <button
                 type="button"
@@ -1076,7 +1076,7 @@ export default function CloneTermPage() {
                   }`}
               >
                 <Trophy className="w-4 h-4" />
-                Leagues & Teams ({previewLeagues.length})
+                Tournaments & Teams ({previewLeagues.length})
               </button>
             </div>
 
@@ -1238,14 +1238,14 @@ export default function CloneTermPage() {
                 </div>
               )}
 
-              {/* 2. Leagues & Teams Section */}
+              {/* 2. Tournaments & Teams Section */}
               {(previewTab === "all" || previewTab === "leagues") && previewLeagues.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-800">
                     <div className="flex items-center gap-2">
                       <Trophy className="w-4 h-4 text-amber-500" />
                       <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-white">
-                        Leagues & Teams ({previewLeagues.length})
+                        Tournaments & Teams ({previewLeagues.length})
                       </h3>
                     </div>
                     <span className="text-[10px] font-bold text-slate-500">
@@ -1270,7 +1270,7 @@ export default function CloneTermPage() {
                             : "border-slate-200 dark:border-slate-800 opacity-60"
                             }`}
                         >
-                          {/* League Header */}
+                          {/* Tournament Header */}
                           <div className="p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-gradient-to-r from-amber-50/20 via-transparent to-transparent dark:from-amber-950/10">
                             <div className="flex items-start gap-3 min-w-0 flex-1">
                               <button
@@ -1349,7 +1349,7 @@ export default function CloneTermPage() {
                             </div>
                           </div>
 
-                          {/* League Teams List */}
+                          {/* Tournament Teams List */}
                           {hasTeams && isLgExpanded && (
                             <div className="border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-900/40 p-4 space-y-3">
                               <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 ml-0.5">
@@ -1491,7 +1491,7 @@ export default function CloneTermPage() {
             <span className="text-slate-800 dark:text-white">{totalSelectedClasses} ({totalSelectedClassPlayers} players)</span>
           </div>
           <div className="flex justify-between font-bold">
-            <span className="text-slate-500">Leagues to clone:</span>
+            <span className="text-slate-500">Tournaments to clone:</span>
             <span className="text-slate-800 dark:text-white">{totalSelectedLeagues} ({totalSelectedTeams} teams, {totalSelectedLeaguePlayers} players)</span>
           </div>
         </div>
@@ -1510,7 +1510,7 @@ export default function CloneTermPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h4 className="text-base font-bold text-slate-800 dark:text-white">Cloning term data</h4>
-              <p className="mt-1 text-xs text-slate-500">Classes, teams, and leagues</p>
+              <p className="mt-1 text-xs text-slate-500">Classes, teams, and tournaments</p>
             </div>
             <strong className="text-2xl text-[#0047FF]">{cloneProgress ? `${cloneProgress.percent}%` : "…"}</strong>
           </div>

@@ -121,7 +121,7 @@ const ImageCropModal: React.FC<Props> = ({ file, policy, onCancel, onCrop }) => 
             <div className="space-y-4">
               <div className="rounded-lg border border-slate-200 p-3 dark:border-gray-700">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Preview</p>
-                <p className="mt-2 font-semibold text-slate-900 dark:text-white">{policy === "logo" ? "League logo" : policy === "storeProduct" ? "Product image" : policy === "sponsorBanner" ? "Sponsor banner" : "Holiday / event image"}</p>
+                <p className="mt-2 font-semibold text-slate-900 dark:text-white">{policy === "logo" ? "Tournament logo" : policy === "storeProduct" ? "Product image" : policy === "sponsorBanner" ? "Sponsor banner" : "Holiday / event image"}</p>
               <p className="mt-1 text-xs text-slate-500">Final file: {output.width} × {output.height} px</p>
               </div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Zoom <span className="text-slate-500">{zoom.toFixed(1)}×</span>

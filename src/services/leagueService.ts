@@ -51,7 +51,7 @@ export const leagueService = {
 
   // Schedule a new fixture (Tab 2)
   createFixture: async (fixtureData: CreateFixturePayload) => {
-    if (!fixtureData.league) throw new Error("A league is required.");
+    if (!fixtureData.league) throw new Error("A tournament is required.");
     const response = await apiClient.post(`/api/admin/leagues/${fixtureData.league}/fixtures`, fixtureData);
     return response.data;
   },

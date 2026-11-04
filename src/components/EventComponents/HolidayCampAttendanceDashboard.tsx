@@ -1,5 +1,5 @@
 // src/components/EventComponents/HolidayCampAttendanceDashboard.tsx
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   Calendar,
@@ -22,7 +22,8 @@ import {
   FileText,
   MoreVertical,
   Eye,
-  Trash2
+  Trash2,
+  RotateCcw
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
@@ -32,6 +33,7 @@ import {
   getEventRegistrationDetails,
   updateEventRegistrationPaymentStatus,
   updateCampDayNote,
+  setCampDayCancellation,
   removeEventRegistration
 } from "../../api/eventApi";
 import {
@@ -46,10 +48,14 @@ import { addDateOnlyDays, formatDateOnly, toDateOnly, todayDateOnly } from "../.
 import { sortPlayersByPaymentStatus } from "../../utils/paymentStatus";
 import EventDayBroadcastButton from "./EventDayBroadcastButton";
 import ConfirmDeleteModal from "../ui/modal/ConfirmDeleteModal";
+import PlayerDetailCard from "../players/PlayerDetailCard";
+import EditCampSessionsModal from "./EditCampSessionsModal";
+import { chatApi } from "../../services/chatApi";
 
 interface HolidayCampAttendanceDashboardProps {
   eventId: string;
   onRosterChange?: () => void;
+  onSessionChange?: () => void;
 }
 
 const WEEKDAY_ORDER = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -61,15 +67,27 @@ const getWeekStartDate = (dateStr: string): string => {
   return addDateOnlyDays(dateStr, -daysFromMonday);
 };
 
-export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashboardProps> = ({ eventId, onRosterChange }) => {
-  const { markItemAsRead, isItemRead } = useSidebarBadges();
+export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashboardProps> = ({ eventId, onRosterChange, onSessionChange }) => {
+  const { markItemAsRead } = useSidebarBadges();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedDayFilter, setSelectedDayFilter] = useState("all");
+  const [medicalFilter, setMedicalFilter] = useState("all");
+  const [dayFilterSelection, setDayFilterSelection] = useState({ eventId, date: "all" });
+  const selectedDayFilter = dayFilterSelection.eventId === eventId ? dayFilterSelection.date : "all";
+  const setSelectedDayFilter = (date: string) => setDayFilterSelection({ eventId, date });
+  const attendanceRequestId = useRef(0);
+
+  useEffect(() => {
+    setDayFilterSelection((current) => current.eventId === eventId && current.date === "all"
+      ? current
+      : { eventId, date: "all" });
+  }, [eventId]);
   const [viewingRegistration, setViewingRegistration] = useState<any>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<any | null>(null);
+  const [sessionEditorPlayer, setSessionEditorPlayer] = useState<any | null>(null);
   const [updatingCell, setUpdatingCell] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null);
@@ -88,6 +106,8 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
   const [bulkUpdatingDate, setBulkUpdatingDate] = useState<string | null>(null);
   const [dayNoteEditor, setDayNoteEditor] = useState<{ date: string; note: string } | null>(null);
   const [savingDayNote, setSavingDayNote] = useState(false);
+  const [dayCancellationEditor, setDayCancellationEditor] = useState<{ date: string; reason: string; isCancelled: boolean } | null>(null);
+  const [savingDayCancellation, setSavingDayCancellation] = useState(false);
   const [playerToRemove, setPlayerToRemove] = useState<any>(null);
   const [removingPlayer, setRemovingPlayer] = useState(false);
 
@@ -176,26 +196,33 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
     }
   };
 
-  const fetchAttendance = async () => {
+  const fetchAttendance = useCallback(async () => {
+    const requestId = ++attendanceRequestId.current;
     try {
       setLoading(true);
-      const res = await getEventAttendanceGrid(eventId);
-      if (res.success) {
+      const res = await getEventAttendanceGrid(eventId, selectedDayFilter === "all" ? undefined : selectedDayFilter);
+      if (requestId === attendanceRequestId.current && res.success) {
         setData(res.data);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (requestId !== attendanceRequestId.current) return;
+      if (selectedDayFilter !== "all" && err?.response?.status === 400) {
+        setDayFilterSelection({ eventId, date: "all" });
+        return;
+      }
       console.error(err);
       toast.error("Failed to load holiday camp attendance data");
     } finally {
-      setLoading(false);
+      if (requestId === attendanceRequestId.current) setLoading(false);
     }
-  };
+  }, [eventId, selectedDayFilter]);
 
   useEffect(() => {
     if (eventId) {
-      fetchAttendance();
+      void fetchAttendance();
     }
-  }, [eventId]);
+    return () => { attendanceRequestId.current += 1; };
+  }, [eventId, fetchAttendance]);
 
   const handleOpenAttendanceMenu = (
     playerId: string,
@@ -380,7 +407,7 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
   // Distinct dates across all sessions for column headers
   const distinctDates = useMemo(() => {
     if (!data?.sessions) return [];
-    const map = new Map<string, { dateStr: string; dayOfWeek: string; formattedDay: string; sessions: any[]; isAvailable: boolean }>();
+    const map = new Map<string, { dateStr: string; dayOfWeek: string; formattedDay: string; sessions: any[]; isAvailable: boolean; isCancelled: boolean; cancellationReason: string }>();
 
     data.sessions.forEach((s: any) => {
       const dStr = toDateOnly(s.sessionDate);
@@ -391,10 +418,16 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
           formattedDay: formatDateOnly(dStr, { day: "numeric", month: "numeric" }),
           sessions: [],
           isAvailable: false,
+          isCancelled: false,
+          cancellationReason: "",
         });
       }
       map.get(dStr)!.sessions.push(s);
       if (s.isAvailable !== false) map.get(dStr)!.isAvailable = true;
+      if (s.isCancelled) {
+        map.get(dStr)!.isCancelled = true;
+        map.get(dStr)!.cancellationReason = s.cancellationReason || map.get(dStr)!.cancellationReason;
+      }
     });
 
     return Array.from(map.values()).sort((a, b) => a.dateStr.localeCompare(b.dateStr));
@@ -445,7 +478,11 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
   // Filter players
   const filteredPlayers = useMemo(() => {
     if (!data?.players) return [];
+    const selectedDateSessions = selectedDayFilter === "all" ? [] : visibleDates[0]?.sessions || [];
     const matchingPlayers = data.players.filter((p: any) => {
+      const matchesDay = selectedDayFilter === "all" || selectedDateSessions.some(
+        (session: any) => p.attendance?.[String(session._id)]?.isRegistered === true
+      );
       const matchesSearch = !searchQuery ||
         p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.email?.toLowerCase().includes(searchQuery.toLowerCase());
@@ -459,11 +496,15 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
         (statusFilter === "paid" && (st === "PAID" || st === "APPROVED" || st === "ACTIVE")) ||
         (statusFilter === "unpaid" && st !== "PAID" && st !== "APPROVED" && st !== "ACTIVE");
 
-      return matchesSearch && matchesStatus;
+      const matchesMedical = medicalFilter === "all" ||
+        (medicalFilter === "yes" && p.isMedicalCondition === true) ||
+        (medicalFilter === "no" && p.isMedicalCondition !== true);
+
+      return matchesDay && matchesSearch && matchesStatus && matchesMedical;
     });
     return sortPlayersByPaymentStatus(matchingPlayers, (player: any) => player.paymentStatus, (player: any) => player.name)
       .map((player: any, index: number) => ({ ...player, rowNumber: index + 1 }));
-  }, [data?.players, searchQuery, statusFilter]);
+  }, [data?.players, searchQuery, statusFilter, medicalFilter, selectedDayFilter, visibleDates]);
 
   const handleOpenDayMenu = (dateStr: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -476,6 +517,10 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
   };
 
   const handleMarkAllPresent = async (date: (typeof distinctDates)[number]) => {
+    if (date.isCancelled) {
+      toast.error("This event day is cancelled");
+      return;
+    }
     const session = date.sessions.find((item: any) => item.isAvailable !== false && item.sessionType === "FULL_DAY")
       || date.sessions.find((item: any) => item.isAvailable !== false);
     if (!session?._id) {
@@ -530,6 +575,61 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
       toast.error(error?.response?.data?.message || "Failed to save day note");
     } finally {
       setSavingDayNote(false);
+    }
+  };
+
+  const handleSaveDayCancellation = async () => {
+    if (!dayCancellationEditor) return;
+    const reason = dayCancellationEditor.reason.trim();
+    if (dayCancellationEditor.isCancelled && !reason) {
+      toast.error("Add a reason before cancelling this event day");
+      return;
+    }
+    setSavingDayCancellation(true);
+    try {
+      await setCampDayCancellation(eventId, dayCancellationEditor.date, reason, dayCancellationEditor.isCancelled);
+      setData((previous: any) => previous ? {
+        ...previous,
+        sessions: previous.sessions.map((session: any) => toDateOnly(session.sessionDate) === dayCancellationEditor.date
+          ? { ...session, isCancelled: dayCancellationEditor.isCancelled, cancellationReason: dayCancellationEditor.isCancelled ? reason : "" }
+          : session),
+        sessionSummaries: (previous.sessionSummaries || []).map((summary: any) => summary.date === dayCancellationEditor.date
+          ? { ...summary, isCancelled: dayCancellationEditor.isCancelled, cancellationReason: dayCancellationEditor.isCancelled ? reason : "" }
+          : summary),
+      } : previous);
+
+      if (dayCancellationEditor.isCancelled) {
+        try {
+          const dayLabel = formatDateOnly(dayCancellationEditor.date, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+          const audiencePreview = await chatApi.previewEventDayBroadcast(eventId, {
+            sessionDate: dayCancellationEditor.date,
+          });
+          const recipientCount = audiencePreview?.data?.recipientCount;
+
+          if (typeof recipientCount !== "number" || recipientCount > 0) {
+            await chatApi.broadcastToEventDay(eventId, {
+              sessionDate: dayCancellationEditor.date,
+              text: `${event?.title || "Event"} on ${dayLabel} has been cancelled. Reason: ${reason}`,
+            });
+            toast.success("Event day cancelled and parents notified");
+          } else {
+            toast.success("Event day cancelled. No parents are registered for this date, so no notification was needed.");
+          }
+        } catch (broadcastError: any) {
+          // The API interceptor already shows request failures. Avoid showing
+          // the same broadcast error a second time here.
+          if (!broadcastError?._handled) {
+            toast.error(`Event day cancelled, but parent notification failed: ${broadcastError?.response?.data?.message || broadcastError?.message || "Please send a day chat update."}`);
+          }
+        }
+      } else {
+        toast.success("Event day restored");
+      }
+      setDayCancellationEditor(null);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || "Failed to update event day cancellation");
+    } finally {
+      setSavingDayCancellation(false);
     }
   };
 
@@ -600,6 +700,16 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
 
         {/* Filters */}
         <div className="flex items-center gap-2">
+          <select
+            value={medicalFilter}
+            onChange={(e) => setMedicalFilter(e.target.value)}
+            className="px-2.5 py-1 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-white outline-none font-medium"
+            aria-label="Filter players by medical condition"
+          >
+            <option value="all">Medical: All</option>
+            <option value="yes">Medical: Yes</option>
+            <option value="no">Medical: No</option>
+          </select>
           <div className="relative">
             <Search size={13} className="absolute left-2.5 top-2 text-gray-400" />
             <input
@@ -632,10 +742,15 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
             <option value="all">All Days</option>
             {distinctDates.map((date, index) => (
               <option key={date.dateStr} value={date.dateStr}>
-                Day {index + 1} · {date.dayOfWeek} {date.formattedDay}{date.dateStr === currentDate ? " · Today" : ""}
+                Day {index + 1} · {date.dayOfWeek} {date.formattedDay}{date.dateStr === currentDate ? " · Today" : ""}{date.isCancelled ? " · Cancelled" : ""}
               </option>
             ))}
           </select>
+          {selectedDayFilter !== "all" && (
+            <span className="whitespace-nowrap text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+              {data?.selectedDayRegistered ?? data?.players?.length ?? 0} registered this day
+            </span>
+          )}
         </div>
       </div>
 
@@ -674,7 +789,7 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
                 <th className="py-1 px-1 border-r border-gray-200 dark:border-gray-700"></th>
                 <th className="py-1 px-1 border-r border-gray-200 dark:border-gray-700"></th>
                 {visibleDates.map((d) => (
-                  <th key={d.dateStr} className={`relative py-1 px-1 text-center border-r border-gray-200 dark:border-gray-700 min-w-[65px] ${d.isAvailable ? "" : "bg-slate-200/80 dark:bg-slate-950/80 text-slate-500"}`}>
+                  <th key={d.dateStr} className={`relative py-1 px-1 text-center border-r border-gray-200 dark:border-gray-700 min-w-[65px] ${d.isCancelled ? "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300" : d.isAvailable ? "" : "bg-slate-200/80 dark:bg-slate-950/80 text-slate-500"}`}>
                     <button
                       id={`day-trigger-${d.dateStr}`}
                       type="button"
@@ -686,8 +801,22 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
                     </button>
                     <div className="text-[9px] text-gray-400 font-medium">{d.dayOfWeek}</div>
                     <div className="text-[11px] font-bold text-gray-800 dark:text-white">{d.formattedDay}</div>
-                    {d.sessions.some((session: any) => session.dayNote) && <div className="text-[8px] font-bold text-amber-600">Note</div>}
-                    {!d.isAvailable && <div className="text-[8px] uppercase tracking-wide text-slate-500">Unavailable</div>}
+                    {d.sessions.some((session: any) => session.dayNote) && (
+                      <div
+                        className="cursor-help text-[8px] font-bold text-amber-600"
+                        title={d.sessions.find((session: any) => session.dayNote)?.dayNote || "No note text available"}
+                        aria-label={`Day note: ${d.sessions.find((session: any) => session.dayNote)?.dayNote || "No note text available"}`}
+                      >
+                        Note
+                      </div>
+                    )}
+                    {d.isCancelled && (
+                      <div className="mx-auto max-w-[76px] text-[8px] font-extrabold leading-tight text-red-700 dark:text-red-300" title={d.cancellationReason || "Event day cancelled"}>
+                        <div className="uppercase tracking-wide">Cancelled</div>
+                        {d.cancellationReason && <div className="mt-0.5 line-clamp-2 font-medium normal-case tracking-normal">{d.cancellationReason}</div>}
+                      </div>
+                    )}
+                    {!d.isAvailable && !d.isCancelled && <div className="text-[8px] uppercase tracking-wide text-slate-500">Unavailable</div>}
                   </th>
                 ))}
                 <th className="py-1 px-1"></th>
@@ -707,14 +836,8 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
                     {/* Player Info - Program Style with Status Icon and Color */}
                     <td className="py-2 px-3 border-r border-gray-100 dark:border-gray-800 min-w-[200px]">
                       <div className="flex items-center gap-2">
-                        {/* Program-style Payment Status Icon Indicator & Unread Indicator */}
+                        {/* Program-style Payment Status Icon Indicator */}
                         <div className="flex items-center gap-1 shrink-0">
-                          {!isItemRead("eventRegistrations", p.registrationId) && (
-                            <span
-                              className="w-2 h-2 rounded-full bg-rose-500 shrink-0"
-                              title="Unread registration"
-                            />
-                          )}
                           <div 
                             className="w-4 h-4 flex items-center justify-center shrink-0"
                             title={["TRIAL", "TBC", "EXTRA", "OTHERS", "SUBSTITUTE"].includes((p.paymentStatus || "").toUpperCase()) ? (p.paymentStatus || "").toUpperCase() : undefined}
@@ -727,13 +850,17 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
                           {p.name ? p.name.charAt(0).toUpperCase() : "P"}
                         </div>
                         <div className="truncate min-w-0 flex-1">
-                          <span
-                            onClick={() => handleOpenRegistrationDetails(p.registrationId)}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (p.registrationId) markItemAsRead("eventRegistrations", p.registrationId);
+                              setSelectedPlayer({ ...p, _id: p.playerId, fullName: p.name });
+                            }}
                             title={p.name}
-                            className={`font-bold hover:underline cursor-pointer truncate block text-xs leading-tight ${getPlayerStatusTextClass(p.paymentStatus)}`}
+                            className={`font-bold text-left hover:underline cursor-pointer truncate block w-full text-xs leading-tight ${getPlayerStatusTextClass(p.paymentStatus)}`}
                           >
                             {p.name}
-                          </span>
+                          </button>
                           <span className="text-[10px] text-gray-400 block truncate">{p.email || p.phone || "Participant"}</span>
                         </div>
                       </div>
@@ -770,9 +897,11 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
                       return (
                         <td
                           key={d.dateStr}
-                          className={`relative py-1 px-1 text-center border-r border-gray-100 dark:border-gray-800 align-middle group/cell ${d.isAvailable ? "" : "bg-slate-100 dark:bg-slate-950/70"}`}
+                          className={`relative py-1 px-1 text-center border-r border-gray-100 dark:border-gray-800 align-middle group/cell ${d.isCancelled ? "bg-red-50 dark:bg-red-950/30" : d.isAvailable ? "" : "bg-slate-100 dark:bg-slate-950/70"}`}
                         >
-                          {!d.isAvailable ? (
+                          {d.isCancelled ? (
+                            <div className="mx-auto flex h-8 w-8 items-center justify-center text-[8px] font-bold text-red-600 dark:text-red-300" title={d.cancellationReason || "Event day cancelled"}>Cancelled</div>
+                          ) : !d.isAvailable ? (
                             <div className="w-8 h-8 mx-auto flex items-center justify-center text-[9px] font-semibold text-slate-400 dark:text-slate-600">N/A</div>
                           ) : isRegistered ? (
                             <div className="relative inline-block">
@@ -862,7 +991,9 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
               ) : (
                 <tr>
                   <td colSpan={visibleDates.length + 5} className="py-8 text-center text-gray-400 text-xs">
-                    No participants match the selected filter.
+                    {selectedDayFilter !== "all" && !data?.players?.length
+                      ? "No players registered for this day."
+                      : "No participants match the selected filter."}
                   </td>
                 </tr>
               )}
@@ -888,8 +1019,8 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
                   });
 
                   return (
-                    <td key={d.dateStr} className={`py-1 px-1 text-center border-r border-gray-200 dark:border-gray-700 ${d.isAvailable ? "" : "bg-slate-200/60 dark:bg-slate-950/80"}`}>
-                      {d.isAvailable ? <>
+                    <td key={d.dateStr} className={`py-1 px-1 text-center border-r border-gray-200 dark:border-gray-700 ${d.isCancelled ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300" : d.isAvailable ? "" : "bg-slate-200/60 dark:bg-slate-950/80"}`}>
+                      {d.isCancelled ? <span className="text-[9px] font-bold">Cancelled</span> : d.isAvailable ? <>
                         <div className="text-xs font-black text-[#031549] dark:text-white">{totalDateReg}</div>
                         <div className="text-[8px] text-sky-600 dark:text-sky-400 font-semibold leading-tight">
                           {halfDayReg} (2pm)
@@ -983,6 +1114,9 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
                   {activePlayer.paymentStatus}
                 </span>
               </div>
+              <div className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                Booked sessions: {activePlayer.registeredSessionsCount || 0}
+              </div>
             </div>
 
             {/* Status Update Menu List from StatusColorCode */}
@@ -995,6 +1129,18 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
             />
 
             <div className="border-t border-slate-100 dark:border-slate-700 mt-1 pt-1">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenMenuId(null);
+                  setSessionEditorPlayer(activePlayer);
+                }}
+                className="w-full text-left px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors flex items-center gap-2"
+              >
+                <Calendar size={14} className="text-brand-500" />
+                Edit booked sessions
+              </button>
               <button
                 type="button"
                 onClick={(e) => {
@@ -1036,6 +1182,12 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
             <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700">
               <span className="text-[10px] uppercase tracking-wide font-bold text-slate-400">Day actions</span>
               <span className="block text-xs font-bold text-slate-800 dark:text-white">{activeDate.dayOfWeek} {activeDate.formattedDay}</span>
+              {activeDate.isCancelled && (
+                <div className="mt-1.5 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-[10px] leading-snug text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                  <span className="font-bold">Cancellation reason</span>
+                  <p className="mt-0.5 break-words">{activeDate.cancellationReason || "No reason was recorded."}</p>
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -1047,7 +1199,7 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
             </button>
             <button
               type="button"
-              disabled={!activeDate.isAvailable || bulkUpdatingDate === activeDate.dateStr}
+              disabled={!activeDate.isAvailable || activeDate.isCancelled || bulkUpdatingDate === activeDate.dateStr}
               onClick={() => handleMarkAllPresent(activeDate)}
               className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
             >
@@ -1075,6 +1227,21 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
               <FileText size={14} className="text-amber-500" />
               Add/edit note
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDayCancellationEditor({
+                  date: activeDate.dateStr,
+                  reason: activeDate.cancellationReason || "",
+                  isCancelled: !activeDate.isCancelled,
+                });
+                setOpenDayMenu(null);
+              }}
+              className={`w-full px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 border-t border-slate-100 dark:border-slate-700 ${activeDate.isCancelled ? "text-emerald-700 dark:text-emerald-300" : "text-red-600 dark:text-red-300"}`}
+            >
+              {activeDate.isCancelled ? <RotateCcw size={14} /> : <XCircle size={14} />}
+              {activeDate.isCancelled ? "Restore event day" : "Cancel event day"}
+            </button>
           </div>,
           document.body
         );
@@ -1101,6 +1268,43 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" onClick={() => setDayNoteEditor(null)} className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
               <button type="button" onClick={handleSaveDayNote} disabled={savingDayNote} className="rounded bg-[#0047FF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingDayNote ? "Saving..." : "Save note"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dayCancellationEditor && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label={dayCancellationEditor.isCancelled ? "Cancel event day" : "Restore event day"}>
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-2xl dark:bg-slate-900">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className={`text-base font-bold ${dayCancellationEditor.isCancelled ? "text-red-700 dark:text-red-300" : "text-slate-900 dark:text-white"}`}>
+                  {dayCancellationEditor.isCancelled ? "Cancel event day?" : "Restore event day?"}
+                </h3>
+                <p className="text-xs text-slate-500">{formatDateOnly(dayCancellationEditor.date, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
+              </div>
+              <button type="button" onClick={() => setDayCancellationEditor(null)} className="rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="Close"><X size={18} /></button>
+            </div>
+            {dayCancellationEditor.isCancelled ? (
+              <>
+                <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">Parents of players registered for this day will receive a chat message and notification with the reason.</p>
+                <textarea
+                  value={dayCancellationEditor.reason}
+                  onChange={(event) => setDayCancellationEditor((current) => current ? { ...current, reason: event.target.value } : current)}
+                  rows={4}
+                  maxLength={1000}
+                  placeholder="Why is this event day cancelled?"
+                  className="w-full resize-none rounded border border-slate-200 p-3 text-sm outline-none focus:border-[#0047FF] dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+              </>
+            ) : (
+              <p className="text-sm text-slate-600 dark:text-slate-300">This date will be available for attendance actions again.</p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setDayCancellationEditor(null)} className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Keep as is</button>
+              <button type="button" onClick={handleSaveDayCancellation} disabled={savingDayCancellation || (dayCancellationEditor.isCancelled && !dayCancellationEditor.reason.trim())} className={`rounded px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${dayCancellationEditor.isCancelled ? "bg-red-600 hover:bg-red-700" : "bg-[#0047FF] hover:bg-blue-700"}`}>
+                {savingDayCancellation ? "Saving..." : dayCancellationEditor.isCancelled ? "Cancel event day" : "Restore event day"}
+              </button>
             </div>
           </div>
         </div>
@@ -1158,6 +1362,23 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
                 </div>
               </div>
 
+              {viewingRegistration.billingSummary && (
+                <div className="grid grid-cols-3 gap-3 text-xs">
+                  <div className="border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
+                    <span className="block text-slate-500">Already paid</span>
+                    <strong className="text-emerald-700">${Number(viewingRegistration.billingSummary.paidAmount || 0).toFixed(2)}</strong>
+                  </div>
+                  <div className="border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+                    <span className="block text-slate-500">Balance due</span>
+                    <strong className="text-amber-700">${Number(viewingRegistration.billingSummary.balanceDue || 0).toFixed(2)}</strong>
+                  </div>
+                  <div className="border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
+                    <span className="block text-slate-500">Credit to handle</span>
+                    <strong className="text-blue-700">${Number(viewingRegistration.billingSummary.creditAmount || 0).toFixed(2)}</strong>
+                  </div>
+                </div>
+              )}
+
               {/* Booked Sessions Breakdown */}
               <div>
                 <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
@@ -1182,26 +1403,21 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
                 </div>
               </div>
 
-              {/* Associated Invoice Link */}
-              {viewingRegistration.registration?.invoice && (
-                <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-bold text-blue-950 dark:text-blue-200 block">
-                      Invoice #{viewingRegistration.registration.invoice.invoiceNumber}
-                    </span>
-                    <span className="text-[11px] text-blue-700 dark:text-blue-400">
-                      Total: ${viewingRegistration.registration.invoice.totalAmount} • Status: {viewingRegistration.registration.invoice.paymentStatus}
-                    </span>
-                  </div>
-                  <a
-                    href={`/invoices/${viewingRegistration.registration.invoice._id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#031549] text-white hover:bg-brand-600 text-xs font-bold transition-all shadow-sm"
-                  >
-                    View Invoice
-                    <ExternalLink size={12} />
-                  </a>
+              {/* All invoices, including paid originals and later balance invoices */}
+              {(viewingRegistration.invoices || []).length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Invoices</h4>
+                  {viewingRegistration.invoices.map((invoice: any) => (
+                    <div key={invoice._id} className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 flex items-center justify-between gap-3">
+                      <div>
+                        <span className="text-xs font-bold text-blue-950 dark:text-blue-200 block">Invoice #{invoice.invoiceNumber}</span>
+                        <span className="text-[11px] text-blue-700 dark:text-blue-400">Total: ${Number(invoice.totalAmount || 0).toFixed(2)} • {invoice.paymentStatus}{invoice.status === "CANCELLED" ? " • Cancelled" : ""}</span>
+                      </div>
+                      <a href={`/invoices/${invoice._id}`} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 bg-[#031549] text-white hover:bg-brand-600 text-xs font-bold transition-all shadow-sm">
+                        View Invoice <ExternalLink size={12} />
+                      </a>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -1242,6 +1458,24 @@ export const HolidayCampAttendanceDashboard: React.FC<HolidayCampAttendanceDashb
         title="Remove player from event?"
         message={`This will cancel ${playerToRemove?.name || "this player's"} active registration and free their booked places. Attendance and invoice history will be retained; paid amounts are not refunded automatically.`}
       />
+      {selectedPlayer && (
+        <PlayerDetailCard
+          player={selectedPlayer}
+          contextYear={Number(toDateOnly(event.startDate).slice(0, 4)) || undefined}
+          onClose={() => setSelectedPlayer(null)}
+        />
+      )}
+      {sessionEditorPlayer && (
+        <EditCampSessionsModal
+          player={sessionEditorPlayer}
+          sessions={data.sessions}
+          onClose={() => setSessionEditorPlayer(null)}
+          onSaved={() => {
+            void fetchAttendance();
+            onSessionChange?.();
+          }}
+        />
+      )}
     </div>
   );
 };

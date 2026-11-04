@@ -28,7 +28,7 @@ import { Modal } from "../../../../components/ui/modal";
 import ImageCropModal from "../../../../components/common/ImageCropModal";
 import Button from "../../../../components/ui/button/Button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getAllTeams, createTeam, getAllCoaches, getAvailablePlayers } from "../../../../api/adminApi";
+import { getAllTeams, createTeam, getAllCoaches, getAvailablePlayers, updateExternalTeamPlayers } from "../../../../api/adminApi";
 import { getAllTerms } from "../../../../api/terms";
 import { toast } from "react-hot-toast";
 import { normalizeUploadImage, validateUploadFile } from "../../../../utils/fileValidation";
@@ -50,7 +50,8 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
   const { data: leagueData } = useLeague(leagueId);
   const leagueTerm = leagueData?.term && typeof leagueData.term === "object" ? leagueData.term : null;
   const leagueTermId = leagueTerm?._id || (typeof leagueData?.term === "string" ? leagueData.term : "");
-  const leagueTermYear = leagueTerm?.year ? String(leagueTerm.year) : "";
+  const independentTournament = leagueData?.termScope === "INDEPENDENT" || (Boolean(leagueData) && !leagueTermId);
+  const leagueTermYear = leagueTerm?.year ? String(leagueTerm.year) : (leagueData?.year ? String(leagueData.year) : (leagueData?.startDate ? leagueData.startDate.slice(0, 4) : ""));
 
   const { data: teams = [], isLoading } = useLeagueTeams(leagueId);
   const { canManageTeams } = useLeaguePermissions();
@@ -79,6 +80,10 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
   // Assign Players Modal State
   const [isAssignPlayersModalOpen, setIsAssignPlayersModalOpen] = useState(false);
   const [selectedTeamForAssign, setSelectedTeamForAssign] = useState<string | null>(null);
+  const [isExternalRosterModalOpen, setIsExternalRosterModalOpen] = useState(false);
+  const [selectedExternalTeam, setSelectedExternalTeam] = useState<LeagueTeam | null>(null);
+  const [externalRosterDraft, setExternalRosterDraft] = useState<Array<{ _id?: string; name: string; jerseyNumber: string; user: string }>>([]);
+  const [isSavingExternalRoster, setIsSavingExternalRoster] = useState(false);
 
   // Add Team Modal States
   const [addModalTab, setAddModalTab] = useState<"EXISTING" | "CREATE">("EXISTING");
@@ -108,17 +113,21 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
   const [selectedPlayerIdsForAdd, setSelectedPlayerIdsForAdd] = useState<string[]>([]);
   const [selectedPlayerStatusesForAdd, setSelectedPlayerStatusesForAdd] = useState<Record<string, string>>({});
   const [playerSearchQueryForAdd, setPlayerSearchQueryForAdd] = useState("");
+  const [externalPlayersForCreate, setExternalPlayersForCreate] = useState<Array<{ name: string; jerseyNumber: string; user: string }>>([
+    { name: "", jerseyNumber: "", user: "" },
+  ]);
 
   const { data: allTeamsData, isLoading: isLoadingAcademyTeams } = useQuery({
-    queryKey: ["allAcademyTeams", leagueId, leagueTermId],
-    queryFn: () => getAllTeams(leagueTermId),
-    enabled: isAddModalOpen && Boolean(leagueTermId),
+    queryKey: ["allAcademyTeams", leagueId, leagueTermId, independentTournament, leagueTermYear],
+    queryFn: () => getAllTeams(independentTournament ? undefined : leagueTermId),
+    enabled: isAddModalOpen && (independentTournament || Boolean(leagueTermId)),
   });
   const fetchedAcademyTeams: any[] = Array.isArray(allTeamsData)
     ? allTeamsData
     : allTeamsData?.data || [];
   const allAcademyTeams = fetchedAcademyTeams.filter((team: any) => {
     const teamTermId = typeof team.term === "object" ? team.term?._id : team.term;
+    if (independentTournament) return true;
     return Boolean(leagueTermId) && String(teamTermId || "") === String(leagueTermId);
   });
   const filteredAcademyTeams = allAcademyTeams.filter((team: any) => {
@@ -143,13 +152,13 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
   });
   const fetchedTerms: any[] = Array.isArray(termsData) ? termsData : (termsData?.data || termsData?.terms || []);
   const terms = fetchedTerms.filter((item: any) => String(item._id || item.id || "") === String(leagueTermId));
-  const leagueTermLabel = leagueTerm?.name || terms[0]?.name || terms[0]?.termName || terms[0]?.title || "League term";
+  const leagueTermLabel = leagueTerm?.name || terms[0]?.name || terms[0]?.termName || terms[0]?.title || "Tournament term";
   const displayedLeagueYear = leagueTermYear || (terms[0]?.year ? String(terms[0].year) : "");
 
   const { data: availablePlayersRes } = useQuery({
     queryKey: ["availablePlayersForTeamModal"],
     queryFn: () => getAvailablePlayers(),
-    enabled: isAddModalOpen && addModalTab === "CREATE",
+    enabled: isAddModalOpen && addModalTab === "CREATE" && createFormData.teamType === "INTERNAL",
   });
   const availablePlayers: any[] = Array.isArray(availablePlayersRes)
     ? availablePlayersRes
@@ -174,6 +183,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
     setSelectedPlayerIdsForAdd([]);
     setSelectedPlayerStatusesForAdd({});
     setPlayerSearchQueryForAdd("");
+    setExternalPlayersForCreate([{ name: "", jerseyNumber: "", user: "" }]);
   };
 
   const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -238,7 +248,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
   };
 
   const handleBulkRemove = async () => {
-    if (!confirm(`Remove ${selectedTeamIds.length} selected teams from the league?`)) return;
+    if (!confirm(`Remove ${selectedTeamIds.length} selected teams from the tournament?`)) return;
     const outcomes = await Promise.allSettled(selectedTeamIds.map((id) => removeTeamMutation.mutateAsync(id)));
     if (outcomes.every((result) => result.status === "fulfilled")) setSelectedTeamIds([]);
   };
@@ -300,28 +310,49 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
     const errors: Record<string, string> = {};
     if (!createFormData.teamName.trim()) errors.teamName = "Team name is required.";
     if (!createFormData.ageGroup.trim()) errors.ageGroup = "Age group is required.";
-    if (!leagueTermId) errors.term = "Select a term for this league before creating a team.";
-    if (!createFormData.coach) errors.coach = "Select an assigned head coach.";
+    if (!independentTournament && !leagueTermId) errors.term = "Select a term for this tournament before creating a team.";
+    if (createFormData.teamType === "INTERNAL" && !createFormData.coach) errors.coach = "Select an assigned head coach.";
+    const externalRosterHasPartialEntry = externalPlayersForCreate.some((player) =>
+      Boolean(player.name.trim()) !== Boolean(player.jerseyNumber.trim())
+    );
     setCreateFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
+    if (createFormData.teamType === "EXTERNAL" && externalRosterHasPartialEntry) {
+      toast.error("Enter both a name and jersey number for each rival player.");
+      return;
+    }
 
     try {
       setIsSubmittingCreateTeam(true);
       const payload = new FormData();
       payload.append("teamName", createFormData.teamName.trim());
-      payload.append("coach", createFormData.coach);
+      if (createFormData.coach) payload.append("coach", createFormData.coach);
       if (createFormData.assistantCoach) {
         payload.append("assistantCoach", createFormData.assistantCoach);
       }
       payload.append("ageGroup", createFormData.ageGroup.trim());
       payload.append("teamType", createFormData.teamType);
       payload.append("isExternal", createFormData.teamType === "EXTERNAL" ? "true" : "false");
-      payload.append("term", leagueTermId);
+      payload.append("termScope", independentTournament ? "INDEPENDENT" : "TERM");
+      if (!independentTournament) payload.append("term", leagueTermId);
       payload.append("year", displayedLeagueYear || createFormData.year || String(new Date().getFullYear()));
+      if (independentTournament) {
+        if (leagueData?.startDate) payload.append("startDate", leagueData.startDate.slice(0, 10));
+        if (leagueData?.endDate) payload.append("endDate", leagueData.endDate.slice(0, 10));
+      }
       if (createFormData.venue) payload.append("venue", createFormData.venue);
       if (createFormData.location) payload.append("location", createFormData.location);
 
-      if (selectedPlayerIdsForAdd.length > 0) {
+      if (createFormData.teamType === "EXTERNAL") {
+        const rivalPlayers = externalPlayersForCreate
+          .filter((player) => player.name.trim() && player.jerseyNumber.trim())
+          .map((player) => ({
+            name: player.name.trim(),
+            jerseyNumber: player.jerseyNumber.trim(),
+            user: player.user.trim(),
+          }));
+        payload.append("externalPlayers", JSON.stringify(rivalPlayers));
+      } else if (selectedPlayerIdsForAdd.length > 0) {
         const playersPayload = selectedPlayerIdsForAdd.map((playerId) => ({
           player: playerId,
           paymentStatus: selectedPlayerStatusesForAdd[playerId] || "UNPAID",
@@ -337,7 +368,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
       const newTeamId = res?.data?._id || res?.team?._id || res?._id || res?.data?.id || res?.id;
 
       if (!newTeamId) {
-        toast.error("Team created but could not retrieve ID to assign to league.");
+        toast.error("Team created but its ID could not be retrieved for tournament assignment.");
         setIsSubmittingCreateTeam(false);
         return;
       }
@@ -350,7 +381,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
       queryClient.invalidateQueries({ queryKey: ["allAcademyTeams"] });
       queryClient.invalidateQueries({ queryKey: ["teams"] });
 
-      toast.success(`Team "${createFormData.teamName}" created and assigned to league!`);
+      toast.success(`Team "${createFormData.teamName}" created and assigned to tournament!`);
       resetCreateForm();
       setIsAddModalOpen(false);
       setAddModalTab("EXISTING");
@@ -359,6 +390,52 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
       toast.error(error?.response?.data?.message || error?.message || "Failed to create team");
     } finally {
       setIsSubmittingCreateTeam(false);
+    }
+  };
+
+  const handleOpenExternalRoster = (team: LeagueTeam) => {
+    setSelectedExternalTeam(team);
+    setExternalRosterDraft((team.externalPlayers || []).map((player) => ({
+      _id: player._id,
+      name: player.name || "",
+      jerseyNumber: String(player.jerseyNumber ?? ""),
+      user: player.user || "",
+    })));
+    setIsExternalRosterModalOpen(true);
+  };
+
+  const handleSaveExternalRoster = async () => {
+    if (!selectedExternalTeam) return;
+    const entries = externalRosterDraft.filter((player) =>
+      player.name.trim() || player.jerseyNumber.trim() || player.user.trim()
+    );
+    if (entries.some((player) => !player.name.trim() || !player.jerseyNumber.trim())) {
+      toast.error("Enter both a player name and jersey number, or remove the empty row.");
+      return;
+    }
+
+    try {
+      setIsSavingExternalRoster(true);
+      await updateExternalTeamPlayers(
+        selectedExternalTeam._id,
+        entries.map((player) => ({
+          _id: player._id,
+          name: player.name.trim(),
+          jerseyNumber: player.jerseyNumber.trim(),
+          user: player.user.trim(),
+        }))
+      );
+      await queryClient.invalidateQueries({ queryKey: ["leagueTeams", leagueId] });
+      await queryClient.invalidateQueries({ queryKey: ["leagueMaster", leagueId] });
+      await queryClient.invalidateQueries({ queryKey: ["teams"] });
+      await queryClient.invalidateQueries({ queryKey: ["teamPlayers", selectedExternalTeam._id] });
+      toast.success("Rival team roster saved.");
+      setIsExternalRosterModalOpen(false);
+      setSelectedExternalTeam(null);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || error?.message || "Could not save rival roster.");
+    } finally {
+      setIsSavingExternalRoster(false);
     }
   };
 
@@ -418,7 +495,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
             Team Participation Management
           </h2>
           <p className="text-xs text-slate-500 font-medium">
-            Manage rosters, statuses, eligibility, and team permissions for this league.
+            Manage rosters, statuses, eligibility, and team permissions for this tournament.
           </p>
         </div>
 
@@ -537,6 +614,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                       ? team.coach
                       : "Unassigned";
                 const isExpanded = !!expandedTeamIds[team._id];
+                const isExternalTeam = String(team.teamType || "INTERNAL").toUpperCase() === "EXTERNAL";
 
                 return (
                   <React.Fragment key={team._id}>
@@ -592,7 +670,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                               </span>
                               {isExpanded && (
                                 <span className="text-[10px] text-blue-300 font-semibold">
-                                  Attendance Active
+                                  {isExternalTeam ? "Rival team" : "Attendance Active"}
                                 </span>
                               )}
                             </div>
@@ -614,7 +692,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                           type="button"
                           onClick={() => toggleTeamAccordion(team._id)}
                           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold transition-colors cursor-pointer ${isExpanded ? "text-white bg-white/10 hover:bg-white/20" : "text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-blue-50 hover:text-[#0047FF] dark:bg-slate-800 dark:hover:bg-slate-700"}`}
-                          title="Click to view player attendance roster"
+                          title={isExternalTeam ? "View rival team roster" : "Click to view player attendance roster"}
                         >
                           <Users size={12} className={isExpanded ? "text-slate-300" : "text-slate-400"} />
                           <span>{team.playersCount}</span>
@@ -636,7 +714,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                       {/* Actions */}
                       <td className={`px-4 text-right ${isExpanded ? "py-2" : "py-3.5"}`}>
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {/* Attendance Accordion Toggle Button */}
+                          {/* Team roster / attendance accordion toggle */}
                           <button
                             type="button"
                             onClick={() => toggleTeamAccordion(team._id)}
@@ -644,27 +722,29 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                               ? "bg-[#0047FF] text-white border-[#0047FF] shadow-xs"
                               : "bg-blue-50 text-[#0047FF] border-blue-200 hover:bg-blue-100 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300"
                               }`}
-                            title={isExpanded ? "Hide Attendance" : "View & Manage Attendance Matrix"}
+                            title={isExpanded ? "Close team panel" : isExternalTeam ? "View rival team roster" : "View & Manage Attendance Matrix"}
                           >
-                            <Calendar size={12} />
-                            <span>{isExpanded ? "Close" : "Attendance"}</span>
+                            {isExternalTeam ? <Users size={12} /> : <Calendar size={12} />}
+                            <span>{isExpanded ? "Close" : isExternalTeam ? "Rival Roster" : "Attendance"}</span>
                           </button>
 
                           {canManageTeams && (
                             <>
                               <button
-                                onClick={() => {
-                                  setSelectedTeamForAssign(team._id);
-                                  setIsAssignPlayersModalOpen(true);
-                                }}
+                                onClick={() => isExternalTeam
+                                  ? handleOpenExternalRoster(team)
+                                  : (() => {
+                                      setSelectedTeamForAssign(team._id);
+                                      setIsAssignPlayersModalOpen(true);
+                                    })()}
                                 className={`px-2 py-1 text-[11px] font-bold rounded border flex items-center gap-1 transition-colors cursor-pointer ${isExpanded
                                   ? "bg-white/10 text-white border-white/20 hover:bg-white/20"
                                   : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
                                   }`}
-                                title="Add/Assign Players"
+                                title={isExternalTeam ? "Manage rival player names and jersey numbers" : "Add/Assign Players"}
                               >
                                 <Plus size={12} />
-                                <span>Add Players</span>
+                                <span>{isExternalTeam ? "Rival Players" : "Add Players"}</span>
                               </button>
 
                               <button
@@ -682,7 +762,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                               <button
                                 onClick={() => handleOpenStatsModal(team)}
                                 className="px-2 py-1 text-[11px] font-bold rounded border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-400 flex items-center gap-1 transition-colors cursor-pointer"
-                                title="Edit Team League Statistics"
+                                title="Edit Team Tournament Statistics"
                               >
                                 <Sliders size={12} />
                                 <span>Stats</span>
@@ -705,7 +785,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
 
                               <button
                                 onClick={() => {
-                                  if (confirm(`Remove ${tName} from this league?`)) {
+                                  if (confirm(`Remove ${tName} from this tournament?`)) {
                                     removeTeamMutation.mutate(team._id);
                                   }
                                 }}
@@ -742,16 +822,49 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                           className="border-b-4 border-slate-200 dark:border-slate-800 w-full"
                         >
                           <div className="bg-white dark:bg-slate-900 rounded-none border border-slate-200 dark:border-slate-700 shadow-md overflow-hidden ring-1 ring-slate-100 dark:ring-slate-800">
-                            <div className="flex justify-end border-b border-slate-100 px-4 py-2 dark:border-slate-800">
-                              <TeamBroadcastButton teamId={team._id} teamName={tName} />
-                            </div>
-                            <TeamFullTable
-                              teamId={team._id}
-                              leagueId={leagueId}
-                              teamName={tName}
-                              hideHeader={true}
-                              className="w-full mb-0 border-0 shadow-none rounded-none bg-white dark:bg-slate-900"
-                            />
+                            {isExternalTeam ? (
+                              <div className="p-4">
+                                <div className="flex items-center justify-between gap-3 mb-3">
+                                  <div>
+                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">Rival team players</h4>
+                                    <p className="text-xs text-slate-500">Standalone roster details for this opponent. These names are not academy player accounts.</p>
+                                  </div>
+                                  {canManageTeams && (
+                                    <Button size="sm" onClick={() => handleOpenExternalRoster(team)}>
+                                      <Plus size={13} /> Manage Roster
+                                    </Button>
+                                  )}
+                                </div>
+                                {(team.externalPlayers || []).length > 0 ? (
+                                  <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                                    {(team.externalPlayers || []).map((player, index) => (
+                                      <div key={player._id || `${player.jerseyNumber}-${index}`} className="flex items-center justify-between gap-3 border-b last:border-b-0 border-slate-100 dark:border-slate-800 px-3 py-2.5 text-sm">
+                                        <span className="font-semibold text-slate-800 dark:text-slate-200">{player.name}</span>
+                                        <div className="flex items-center gap-3 text-xs text-slate-500">
+                                          {player.user && <span>{player.user}</span>}
+                                          <span className="rounded bg-slate-100 dark:bg-slate-800 px-2 py-1 font-bold text-slate-700 dark:text-slate-300">#{player.jerseyNumber}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="rounded-lg border border-dashed border-slate-300 dark:border-slate-700 px-3 py-5 text-center text-xs text-slate-500">No rival players added yet.</p>
+                                )}
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex justify-end border-b border-slate-100 px-4 py-2 dark:border-slate-800">
+                                  <TeamBroadcastButton teamId={team._id} teamName={tName} />
+                                </div>
+                                <TeamFullTable
+                                  teamId={team._id}
+                                  leagueId={leagueId}
+                                  teamName={tName}
+                                  hideHeader={true}
+                                  className="w-full mb-0 border-0 shadow-none rounded-none bg-white dark:bg-slate-900"
+                                />
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -779,8 +892,8 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                   <Users size={20} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Assign Teams to League</h3>
-                  <p className="text-xs text-slate-500">Select existing teams to participate in this league.</p>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Assign Teams to Tournament</h3>
+                  <p className="text-xs text-slate-500">Select existing teams to participate in this tournament.</p>
                 </div>
               </div>
               <button
@@ -808,16 +921,16 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                 />
               </div>
               <p className="text-[11px] text-slate-500">
-                {leagueTermId ? `Showing teams for ${leagueTermLabel}${displayedLeagueYear ? ` ${displayedLeagueYear}` : ""}.` : "Select a term for this league before adding teams."}
+                {independentTournament ? "Showing term-linked and independent teams for this tournament." : leagueTermId ? `Showing teams for ${leagueTermLabel}${displayedLeagueYear ? ` ${displayedLeagueYear}` : ""}.` : "Select a term for this tournament before adding teams."}
               </p>
 
               <div className="max-h-[300px] overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900 custom-scrollbar">
-                {!leagueTermId ? (
-                  <div className="p-6 text-center text-xs text-slate-500">This league does not have a selected term.</div>
+                {!independentTournament && !leagueTermId ? (
+                  <div className="p-6 text-center text-xs text-slate-500">This tournament does not have a selected term.</div>
                 ) : isLoadingAcademyTeams ? (
-                  <div className="p-6 text-center text-xs text-slate-500">Loading teams for {leagueTermLabel}…</div>
+                  <div className="p-6 text-center text-xs text-slate-500">Loading teams…</div>
                 ) : filteredAcademyTeams.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-slate-500">No teams found for {leagueTermLabel}{displayedLeagueYear ? ` ${displayedLeagueYear}` : ""}.</div>
+                  <div className="p-6 text-center text-xs text-slate-500">{independentTournament ? "No teams found." : `No teams found for ${leagueTermLabel}${displayedLeagueYear ? ` ${displayedLeagueYear}` : ""}.`}</div>
                 ) : filteredAcademyTeams.map((t: any) => {
                     const isAlreadyInLeague = teams.some((leagueTeam) => leagueTeam._id === t._id);
                     const isSelected = selectedExistingTeamIds.includes(t._id);
@@ -873,7 +986,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
 
                           {isAlreadyInLeague && (
                             <span className="text-[10px] font-bold px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded border border-slate-200 dark:border-slate-700">
-                              Already in League
+                              Already in Tournament
                             </span>
                           )}
                         </div>
@@ -945,7 +1058,12 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                       <select
                         id="league-team-type"
                         value={createFormData.teamType}
-                        onChange={(e) => setCreateFormData({ ...createFormData, teamType: e.target.value })}
+                        onChange={(e) => {
+                          const teamType = e.target.value;
+                          setCreateFormData({ ...createFormData, teamType, coach: "", assistantCoach: "" });
+                          setSelectedPlayerIdsForAdd([]);
+                          setSelectedPlayerStatusesForAdd({});
+                        }}
                         className="w-full rounded-none border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-slate-800 px-4 py-2.5 text-sm font-bold focus:bg-white focus:border-brand-500 outline-none transition-all appearance-none cursor-pointer dark:text-white"
                         required
                       >
@@ -984,29 +1102,30 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                         type="text"
                         value={displayedLeagueYear || createFormData.year}
                         readOnly
-                        aria-label="League year"
+                        aria-label="Tournament year"
                         className="w-full rounded-none border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-slate-800 px-3 py-2.5 text-sm font-bold text-gray-600 dark:text-slate-300 cursor-not-allowed"
                       />
                     </div>
                     <div>
-                      <label htmlFor="league-team-term" className="block text-[11px] font-bold uppercase tracking-widest text-gray-500 mb-2 ml-1">Academic Term <span className="text-error-600">*</span></label>
+                      <label htmlFor="league-team-term" className="block text-[11px] font-bold uppercase tracking-widest text-gray-500 mb-2 ml-1">Academic Term {!independentTournament && <span className="text-error-600">*</span>}</label>
                       <select
                         id="league-team-term"
-                        value={leagueTermId}
-                        disabled={!leagueTermId}
-                        aria-label="League academic term"
-                        aria-required="true"
+                        value={independentTournament ? "INDEPENDENT" : leagueTermId}
+                        disabled
+                        aria-label="Tournament academic term"
+                        aria-required={!independentTournament}
                         aria-invalid={Boolean(createFormErrors.term)}
                         aria-describedby={createFormErrors.term ? "league-team-term-error" : undefined}
                         className="w-full rounded-none border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-slate-800 px-3 py-2.5 text-sm font-bold text-gray-600 dark:text-slate-300 cursor-not-allowed"
                       >
-                        {leagueTermId ? <option value={leagueTermId}>{leagueTermLabel}</option> : <option value="">No term selected for this league</option>}
+                        {independentTournament ? <option value="INDEPENDENT">Independent / No Term</option> : leagueTermId ? <option value={leagueTermId}>{leagueTermLabel}</option> : <option value="">No term selected for this tournament</option>}
                       </select>
                       {createFormErrors.term && <p id="league-team-term-error" role="alert" className="mt-1 text-sm text-error-600">{createFormErrors.term}</p>}
                     </div>
                   </div>
 
-                  {/* Coaches */}
+                  {/* Only academy teams can be assigned academy coaches. */}
+                  {createFormData.teamType === "INTERNAL" ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label htmlFor="league-team-coach" className="block text-[11px] font-bold uppercase tracking-widest text-gray-500 mb-2 ml-1">Assigned Head Coach *</label>
@@ -1040,6 +1159,11 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                       </select>
                     </div>
                   </div>
+                  ) : (
+                    <div className="border border-blue-100 bg-blue-50/70 px-4 py-3 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+                      Rival teams do not need an academy coach. Add their roster names and jersey numbers below.
+                    </div>
+                  )}
                 </div>
 
                 {/* Logo Upload Panel */}
@@ -1100,7 +1224,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                   </div>
                 </div>
 
-                {/* Initial Players Selection */}
+                {createFormData.teamType === "INTERNAL" ? (
                 <div className="border-t border-gray-100 dark:border-gray-800 pt-5 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1109,7 +1233,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                         Assign Initial Players (Automated Fee Invoicing)
                       </h5>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        Assigned players default to UNPAID payment status so tournament fee invoices trigger automatically upon paid league assignment.
+                        Assigned players default to UNPAID payment status so tournament fee invoices trigger automatically upon paid tournament assignment.
                       </p>
                     </div>
                     <span className="text-[11px] font-bold px-2 py-0.5 bg-blue-50 dark:bg-blue-950 text-[#0047FF] dark:text-blue-300 border border-blue-200 dark:border-blue-800">
@@ -1202,6 +1326,56 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
                     )}
                   </div>
                 </div>
+                ) : (
+                  <div className="border-t border-gray-100 dark:border-gray-800 pt-5 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h5 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Rival team roster</h5>
+                        <p className="mt-1 text-[11px] text-slate-500">Enter opponent details for tournament records. These entries stay on this external team and do not create academy player accounts.</p>
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-500">{externalPlayersForCreate.filter((player) => player.name.trim() && player.jerseyNumber.trim()).length} Players</span>
+                    </div>
+                    <div className="space-y-2">
+                      {externalPlayersForCreate.map((player, index) => (
+                        <div key={index} className="grid grid-cols-1 sm:grid-cols-[minmax(0,1.5fr)_minmax(110px,0.65fr)_minmax(0,1fr)_auto] gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
+                          <input
+                            type="text"
+                            aria-label={`Rival player ${index + 1} name`}
+                            placeholder="Player name"
+                            maxLength={100}
+                            value={player.name}
+                            onChange={(event) => setExternalPlayersForCreate((previous) => previous.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: event.target.value } : entry))}
+                            className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-800 dark:text-white outline-none focus:border-[#0047FF]"
+                          />
+                          <input
+                            type="text"
+                            aria-label={`Rival player ${index + 1} jersey number`}
+                            placeholder="Jersey no."
+                            maxLength={10}
+                            value={player.jerseyNumber}
+                            onChange={(event) => setExternalPlayersForCreate((previous) => previous.map((entry, entryIndex) => entryIndex === index ? { ...entry, jerseyNumber: event.target.value } : entry))}
+                            className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-800 dark:text-white outline-none focus:border-[#0047FF]"
+                          />
+                          <input
+                            type="text"
+                            aria-label={`Rival player ${index + 1} user or contact`}
+                            placeholder="User / contact (optional)"
+                            maxLength={100}
+                            value={player.user}
+                            onChange={(event) => setExternalPlayersForCreate((previous) => previous.map((entry, entryIndex) => entryIndex === index ? { ...entry, user: event.target.value } : entry))}
+                            className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-800 dark:text-white outline-none focus:border-[#0047FF]"
+                          />
+                          <button type="button" aria-label={`Remove rival player ${index + 1}`} onClick={() => setExternalPlayersForCreate((previous) => previous.filter((_, entryIndex) => entryIndex !== index))} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600 dark:border-slate-700">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button" disabled={externalPlayersForCreate.length >= 50} onClick={() => setExternalPlayersForCreate((previous) => [...previous, { name: "", jerseyNumber: "", user: "" }])} className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 px-3 py-2 text-xs font-bold text-[#0047FF] hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-900 dark:hover:bg-blue-950/30">
+                      <Plus size={13} /> Add rival player
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
@@ -1219,6 +1393,78 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
         )}
       </Modal>
 
+      <Modal
+        isOpen={isExternalRosterModalOpen}
+        onClose={() => {
+          if (!isSavingExternalRoster) {
+            setIsExternalRosterModalOpen(false);
+            setSelectedExternalTeam(null);
+          }
+        }}
+        className="max-w-[760px] p-6 rounded-xl shadow-2xl"
+      >
+        <div className="mb-5 border-b border-slate-100 pb-4 dark:border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-blue-50 p-2.5 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"><Users size={20} /></div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Rival team players</h3>
+              <p className="text-xs text-slate-500">{selectedExternalTeam?.teamName || "External team"}</p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">These are standalone rival-team details. They are not added to the academy players database or linked to academy player assignments.</p>
+        </div>
+
+        <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+          {externalRosterDraft.map((player, index) => (
+            <div key={index} className="grid grid-cols-1 sm:grid-cols-[minmax(0,1.5fr)_minmax(110px,0.65fr)_minmax(0,1fr)_auto] gap-2 rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+              <input
+                type="text"
+                aria-label={`Rival player ${index + 1} name`}
+                placeholder="Player name"
+                maxLength={100}
+                value={player.name}
+                onChange={(event) => setExternalRosterDraft((previous) => previous.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: event.target.value } : entry))}
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0047FF] dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+              <input
+                type="text"
+                aria-label={`Rival player ${index + 1} jersey number`}
+                placeholder="Jersey no."
+                maxLength={10}
+                value={player.jerseyNumber}
+                onChange={(event) => setExternalRosterDraft((previous) => previous.map((entry, entryIndex) => entryIndex === index ? { ...entry, jerseyNumber: event.target.value } : entry))}
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0047FF] dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+              <input
+                type="text"
+                aria-label={`Rival player ${index + 1} user or contact`}
+                placeholder="User / contact (optional)"
+                maxLength={100}
+                value={player.user}
+                onChange={(event) => setExternalRosterDraft((previous) => previous.map((entry, entryIndex) => entryIndex === index ? { ...entry, user: event.target.value } : entry))}
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0047FF] dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+              <button type="button" aria-label={`Remove rival player ${index + 1}`} onClick={() => setExternalRosterDraft((previous) => previous.filter((_, entryIndex) => entryIndex !== index))} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600 dark:border-slate-700">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+          {externalRosterDraft.length === 0 && (
+            <p className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-xs text-slate-500 dark:border-slate-700">No rival players in this roster yet.</p>
+          )}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <button type="button" disabled={externalRosterDraft.length >= 50} onClick={() => setExternalRosterDraft((previous) => [...previous, { name: "", jerseyNumber: "", user: "" }])} className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 px-3 py-2 text-xs font-bold text-[#0047FF] hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-900 dark:hover:bg-blue-950/30">
+            <Plus size={13} /> Add rival player
+          </button>
+          <div className="flex gap-2">
+            <Button variant="outline" type="button" disabled={isSavingExternalRoster} onClick={() => { setIsExternalRosterModalOpen(false); setSelectedExternalTeam(null); }}>Cancel</Button>
+            <Button type="button" disabled={isSavingExternalRoster} onClick={handleSaveExternalRoster}>{isSavingExternalRoster ? "Saving..." : "Save Roster"}</Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* ================= EDIT TEAM LEAGUE STATS MODAL ================= */}
       <Modal
         isOpen={isStatsModalOpen}
@@ -1231,7 +1477,7 @@ export const TeamManagementTable: React.FC<TeamManagementTableProps> = ({ league
           </div>
           <div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-              Edit Team League Statistics
+              Edit Team Tournament Statistics
             </h3>
             <p className="text-xs text-slate-500">
               {selectedTeamForStats?.teamName || selectedTeamForStats?.name || "Team"}

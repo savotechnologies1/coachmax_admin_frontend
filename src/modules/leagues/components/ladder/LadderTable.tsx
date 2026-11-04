@@ -117,7 +117,7 @@ export const LadderTable: React.FC<LadderTableProps> = ({ leagueId, season = "Se
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `League_Ladder_${selectedSeason.replace(/\s+/g, "_")}.csv`);
+    link.setAttribute("download", `Tournament_Ladder_${selectedSeason.replace(/\s+/g, "_")}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -133,7 +133,7 @@ export const LadderTable: React.FC<LadderTableProps> = ({ leagueId, season = "Se
             Ladder
           </h2>
           <p className="text-xs text-slate-500 font-medium">
-            League standings & rankings dynamically updated from match results.
+            Tournament standings & rankings dynamically updated from match results.
           </p>
         </div>
 

@@ -7,7 +7,7 @@ export default function FixturesManagementPage() {
     <>
       <PageMeta
         title="CoachMax | Fixtures Management"
-        description="Manage your league match fixtures and scheduling"
+        description="Manage your tournament match fixtures and scheduling"
       />
       <div className="space-y-6">
         <PageBreadcrumb pageTitle="Fixtures Management" />

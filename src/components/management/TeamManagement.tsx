@@ -28,9 +28,12 @@ const teamFormSchema = z.object({
   teamName: requiredText("Team name"),
   teamType: requiredText("Team category"),
   ageGroup: requiredText("Age group"),
-  term: requiredText("Academic term"),
+  year: requiredText("Year"),
   coach: requiredText("Head coach"),
 });
+
+const ALL_TEAMS = "__ALL__";
+const INDEPENDENT_TEAMS = "__INDEPENDENT__";
 
 const TeamManagement: React.FC = () => {
   const { can } = useCoachAccess();
@@ -53,19 +56,31 @@ const TeamManagement: React.FC = () => {
   const [selectedFilterYear, setSelectedFilterYear] = useState<string>(
     new Date().getFullYear().toString()
   );
+  const [filterYearDraft, setFilterYearDraft] = useState<string>(selectedFilterYear);
   const [selectedFilterTerm, setSelectedFilterTerm] = useState<string>("");
 
-  const { terms: filterTerms } = useTerms({ year: selectedFilterYear, isEvent: "all" });
+  const applyFilterYear = () => {
+    if (!/^\d{4}$/.test(filterYearDraft)) { setFilterYearDraft(selectedFilterYear); return; }
+    if (filterYearDraft === selectedFilterYear) return;
+    setSelectedFilterYear(filterYearDraft);
+    if (selectedFilterTerm !== INDEPENDENT_TEAMS && selectedFilterTerm !== ALL_TEAMS) setSelectedFilterTerm("");
+  };
+
+  const { terms: filterTerms, isLoading: areFilterTermsLoading } = useTerms({ year: selectedFilterYear, isEvent: "all" });
 
   useEffect(() => {
+    if (areFilterTermsLoading) return;
+    if (selectedFilterTerm === INDEPENDENT_TEAMS || selectedFilterTerm === ALL_TEAMS) return;
     if (filterTerms && filterTerms.length > 0) {
       const active = findCurrentTerm(filterTerms) || filterTerms[0];
       const termIdToSet = active._id || active.id;
       if (!selectedFilterTerm || !filterTerms.some((t: any) => (t._id || t.id) === selectedFilterTerm)) {
         setSelectedFilterTerm(termIdToSet);
       }
+    } else if (filterTerms && !selectedFilterTerm) {
+      setSelectedFilterTerm(INDEPENDENT_TEAMS);
     }
-  }, [filterTerms]);
+  }, [filterTerms, areFilterTermsLoading, selectedFilterTerm]);
 
   useEffect(() => {
     const handleClickOutside = () => setOpenDropdownId(null);
@@ -82,6 +97,9 @@ const TeamManagement: React.FC = () => {
     teamFee: "",
     year: new Date().getFullYear().toString(),
     term: "",
+    termScope: "TERM" as "TERM" | "INDEPENDENT",
+    startDate: "",
+    endDate: "",
     dayOfWeek: "Monday",
     startTime: "17:00",
     endTime: "18:30",
@@ -137,8 +155,17 @@ const TeamManagement: React.FC = () => {
   };
 
   const { data: teamsData, isLoading: loading } = useQuery({
-    queryKey: ["teams", selectedFilterTerm, page, limit, searchQuery],
-    queryFn: () => getAllTeams(selectedFilterTerm, { page, limit, search: searchQuery }),
+    queryKey: ["teams", selectedFilterYear, selectedFilterTerm, page, limit, searchQuery],
+    queryFn: () => getAllTeams(
+      selectedFilterTerm === ALL_TEAMS || selectedFilterTerm === INDEPENDENT_TEAMS ? undefined : selectedFilterTerm,
+      {
+        page,
+        limit,
+        search: searchQuery,
+        year: selectedFilterTerm === ALL_TEAMS || selectedFilterTerm === INDEPENDENT_TEAMS ? selectedFilterYear : undefined,
+        termScope: selectedFilterTerm === INDEPENDENT_TEAMS ? "INDEPENDENT" : undefined,
+      },
+    ),
     enabled: !!selectedFilterTerm,
   });
   const teams = getDataArray(teamsData);
@@ -199,7 +226,12 @@ const TeamManagement: React.FC = () => {
       fee: "",
       teamFee: "",
       year: selectedFilterYear,
-      term: selectedFilterTerm,
+      term: filterTerms.some((term: any) => String(term._id || term.id) === selectedFilterTerm)
+        ? selectedFilterTerm
+        : String((findCurrentTerm(filterTerms) || filterTerms[0])?._id || (findCurrentTerm(filterTerms) || filterTerms[0])?.id || ""),
+      termScope: selectedFilterTerm === INDEPENDENT_TEAMS ? "INDEPENDENT" : "TERM",
+      startDate: "",
+      endDate: "",
       dayOfWeek: "Monday",
       startTime: "17:00",
       endTime: "18:30",
@@ -236,6 +268,9 @@ const TeamManagement: React.FC = () => {
       teamFee: feeVal,
       year: yearVal ? yearVal.toString() : "",
       term: team.term?._id || team.term || "",
+      termScope: team.termScope === "INDEPENDENT" || (!team.termScope && !team.term) ? "INDEPENDENT" : "TERM",
+      startDate: team.startDate ? toDateOnly(team.startDate) : "",
+      endDate: team.endDate ? toDateOnly(team.endDate) : "",
       dayOfWeek: team.dayOfWeek || "Monday",
       startTime: team.startTime || "17:00",
       endTime: team.endTime || "18:30",
@@ -255,7 +290,7 @@ const TeamManagement: React.FC = () => {
     }
 
     const hasRounds = (team.round !== undefined && team.round !== null) || (Array.isArray(team.sessionDates) && team.sessionDates.length > 0);
-    if (hasRounds) {
+    if (hasRounds || team.termScope === "INDEPENDENT" || (!team.termScope && !team.term)) {
       setScheduleMode("ROUNDS");
       const formattedDates = (team.sessionDates || []).map((d: string) => {
         try {
@@ -312,7 +347,13 @@ const TeamManagement: React.FC = () => {
     e.preventDefault();
     const result = validateWithSchema(teamFormSchema, formData);
     const errors: Record<string, string> = { ...result.errors };
-    if (scheduleMode === "ROUNDS") {
+    if (!/^\d{4}$/.test(formData.year)) errors.year = "Enter a four-digit year.";
+    if (formData.termScope === "TERM" && !formData.term) errors.term = "Select an academic term.";
+    if (formData.termScope === "INDEPENDENT") {
+      if (Boolean(formData.startDate) !== Boolean(formData.endDate)) errors.startDate = "Enter both dates, or leave both blank.";
+      if (formData.startDate && formData.endDate && formData.endDate < formData.startDate) errors.endDate = "End date must be on or after the start date.";
+    }
+    if (formData.termScope === "TERM" && scheduleMode === "ROUNDS") {
       const validDates = sessionDates.filter(Boolean);
       const rounds = Number(roundCount);
       if (!Number.isInteger(rounds) || rounds < 1) errors.roundCount = "Round count must be a whole number of at least 1.";
@@ -349,12 +390,15 @@ const TeamManagement: React.FC = () => {
     const selectedTermYear = terms.find((item: any) => String(item._id || item.id) === String(formData.term))?.year;
     const effectiveYear = formData.year || (selectedTermYear ? String(selectedTermYear) : "");
     if (effectiveYear) payload.append("year", effectiveYear);
-    if (formData.term) {
-      payload.append("term", formData.term);
+    payload.append("termScope", formData.termScope);
+    payload.append("term", formData.termScope === "TERM" ? formData.term : "");
+    if (formData.termScope === "INDEPENDENT" || isEditing) {
+      payload.append("startDate", formData.termScope === "INDEPENDENT" ? formData.startDate : "");
+      payload.append("endDate", formData.termScope === "INDEPENDENT" ? formData.endDate : "");
     }
 
     // Schedule: no scheduleType sent as per integration guide
-    if (scheduleMode === "ROUNDS") {
+    if (formData.termScope === "TERM" && scheduleMode === "ROUNDS") {
       const validDates = sessionDates.filter(Boolean);
       const effectiveRound = Number(roundCount) || (validDates.length > 0 ? validDates.length : 1);
       payload.append("round", String(effectiveRound));
@@ -370,7 +414,7 @@ const TeamManagement: React.FC = () => {
     }
 
     // Initial players assignment on team creation: default to UNPAID for automated tournament fee invoicing
-    if (!isEditing && selectedPlayerIdsForAdd.length > 0) {
+    if (!isEditing && formData.teamType !== "EXTERNAL" && selectedPlayerIdsForAdd.length > 0) {
       const playersPayload = selectedPlayerIdsForAdd.map((playerId) => ({
         player: playerId,
         paymentStatus: selectedPlayerStatusesForAdd[playerId] || "UNPAID",
@@ -423,20 +467,17 @@ const TeamManagement: React.FC = () => {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {/* Year Filter Dropdown */}
-          <select
-            value={selectedFilterYear}
-            onChange={(e) => {
-              setSelectedFilterYear(e.target.value);
-              setSelectedFilterTerm("");
-            }}
+          <input
+            type="number"
+            min="1000"
+            max="9999"
+            aria-label="Filter team year"
+            value={filterYearDraft}
+            onChange={(e) => setFilterYearDraft(e.target.value)}
+            onBlur={applyFilterYear}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyFilterYear(); } }}
             className="h-11 min-h-11 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-0 text-xs font-bold text-slate-800 dark:text-slate-200 rounded-none focus:outline-none focus:border-[#0047FF] shadow-xs cursor-pointer"
-          >
-            {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map((yr) => (
-              <option key={yr} value={yr}>
-                {yr}
-              </option>
-            ))}
-          </select>
+          />
 
           {/* Term Filter Dropdown */}
           <select
@@ -444,6 +485,8 @@ const TeamManagement: React.FC = () => {
             onChange={(e) => setSelectedFilterTerm(e.target.value)}
             className="h-11 min-h-11 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-0 text-xs font-bold text-slate-800 dark:text-slate-200 rounded-none focus:outline-none focus:border-[#0047FF] shadow-xs cursor-pointer max-w-[240px]"
           >
+            <option value={ALL_TEAMS}>All Teams</option>
+            <option value={INDEPENDENT_TEAMS}>Independent / No Term</option>
             {filterTerms.map((t: any) => (
               <option key={t._id || t.id} value={t._id || t.id}>
                 {t.name || t.termName || t.title || "Term"} {t.year ? `(${t.year})` : ""}
@@ -520,7 +563,7 @@ const TeamManagement: React.FC = () => {
                     <td className="py-4 px-4">
                       <div className="flex flex-col gap-1 text-xs">
                         <span className="font-bold text-slate-800 dark:text-slate-200">{team.year || team.term?.year || "Year not set"}</span>
-                        <span className="text-slate-500 dark:text-slate-400">{team.term?.name || team.termName || "Term not set"}</span>
+                        <span className="text-slate-500 dark:text-slate-400">{team.termScope === "INDEPENDENT" || !team.term ? "Independent / No Term" : team.term?.name || team.termName || "Academic term"}</span>
                       </div>
                     </td>
                     <td className="py-4 px-4">
@@ -707,6 +750,26 @@ const TeamManagement: React.FC = () => {
                 </div>
               </div>
 
+              <div className="border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/40">
+                <span className="mb-2 block text-[11px] font-bold uppercase tracking-widest text-slate-500">Term Link</span>
+                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Team term link">
+                  {(["TERM", "INDEPENDENT"] as const).map((scope) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      aria-pressed={formData.termScope === scope}
+                      onClick={() => {
+                        setFormData({ ...formData, termScope: scope, term: scope === "INDEPENDENT" ? "" : formData.term });
+                        if (scope === "INDEPENDENT") { setScheduleMode("ROUNDS"); clearValidationError("term", true); }
+                      }}
+                      className={`border px-3 py-2 text-xs font-bold ${formData.termScope === scope ? "border-[#0047FF] bg-[#0047FF] text-white" : "border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"}`}
+                    >
+                      {scope === "TERM" ? "Academic Term" : "Independent / No Term"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label htmlFor="team-age-group" className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2 ml-1">Age Group *</label>
@@ -731,21 +794,19 @@ const TeamManagement: React.FC = () => {
                 </div>
                 <div>
                   <label htmlFor="team-year" className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2 ml-1">Year</label>
-                  <select
+                  <input
                     id="team-year"
+                    type="number"
+                    min="1000"
+                    max="9999"
                     value={formData.year}
-                    onChange={(e) => setFormData({ ...formData, year: e.target.value, term: "" })}
-                    className="w-full rounded-none border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-slate-800 px-3 py-2.5 text-sm font-bold focus:bg-white focus:border-brand-500 outline-none transition-all appearance-none cursor-pointer dark:text-white"
-                  >
-                    <option value="">All Years</option>
-                    {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map((yr) => (
-                      <option key={yr} value={yr}>
-                        {yr}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(e) => { const year = e.target.value; setFormData({ ...formData, year, term: "" }); clearValidationError("year", /^\d{4}$/.test(year)); }}
+                    className={`w-full rounded-none border ${validationErrors.year ? "border-error-500" : "border-gray-200 dark:border-gray-700"} bg-gray-50 dark:bg-slate-800 px-3 py-2.5 text-sm font-bold focus:bg-white focus:border-brand-500 outline-none transition-all appearance-none cursor-pointer dark:text-white`}
+                    aria-invalid={Boolean(validationErrors.year)}
+                  />
+                  {validationErrors.year && <p className="mt-1 text-xs text-error-600" role="alert">{validationErrors.year}</p>}
                 </div>
-                <div>
+                {formData.termScope === "TERM" && <div>
                   <label htmlFor="team-term" className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2 ml-1">Academic Term *</label>
                   <select
                     id="team-term"
@@ -764,8 +825,26 @@ const TeamManagement: React.FC = () => {
                     ))}
                   </select>
                   {validationErrors.term && <p id="team-term-error" className="mt-1 text-xs text-error-600" role="alert">{validationErrors.term}</p>}
-                </div>
+                </div>}
               </div>
+
+              {formData.termScope === "INDEPENDENT" && (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">This team can operate outside academic terms. Dates are optional for a roster-only team.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="team-start-date" className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2 ml-1">Start Date</label>
+                      <input id="team-start-date" type="date" value={formData.startDate} onChange={(e) => { const startDate = e.target.value; setFormData({ ...formData, startDate, year: startDate ? startDate.slice(0, 4) : formData.year }); clearValidationError("startDate", true); }} className="w-full rounded-none border border-gray-200 bg-white px-3 py-2.5 text-sm dark:border-gray-700 dark:bg-slate-800 dark:text-white" />
+                      {validationErrors.startDate && <p className="mt-1 text-xs text-error-600" role="alert">{validationErrors.startDate}</p>}
+                    </div>
+                    <div>
+                      <label htmlFor="team-end-date" className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2 ml-1">End Date</label>
+                      <input id="team-end-date" type="date" value={formData.endDate} onChange={(e) => { setFormData({ ...formData, endDate: e.target.value }); clearValidationError("endDate", true); }} className="w-full rounded-none border border-gray-200 bg-white px-3 py-2.5 text-sm dark:border-gray-700 dark:bg-slate-800 dark:text-white" />
+                      {validationErrors.endDate && <p className="mt-1 text-xs text-error-600" role="alert">{validationErrors.endDate}</p>}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Coaches */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -912,7 +991,7 @@ const TeamManagement: React.FC = () => {
             </div>
 
             {/* Initial Players Selection (Create Team Mode) */}
-            {!isEditing && (
+            {!isEditing && formData.teamType !== "EXTERNAL" && (
               <div className="border-t border-gray-100 dark:border-gray-800 pt-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -921,7 +1000,7 @@ const TeamManagement: React.FC = () => {
                       Assign Initial Players (Automated Fee Invoicing)
                     </h5>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Assigned players default to UNPAID payment status so tournament fee invoices trigger automatically upon paid league assignment.
+                      Assigned players default to UNPAID payment status so tournament fee invoices trigger automatically upon paid tournament assignment.
                     </p>
                   </div>
                   <span className="text-[11px] font-bold px-2 py-0.5 bg-blue-50 dark:bg-blue-950 text-[#0047FF] dark:text-blue-300 border border-blue-200 dark:border-blue-800">

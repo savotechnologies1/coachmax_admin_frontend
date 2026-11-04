@@ -101,7 +101,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
     if (label === "EVENT") return [eventTitle || "Holiday Camp", room.eventSessionDate, termName, schedule].filter(Boolean).join(" · ");
     if (label === "TEAM") return teamName || room.name || "Team chat";
-    if (label === "LEAGUE") return [leagueName || room.name || "League chat", termName].filter(Boolean).join(" · ");
+    if (label === "LEAGUE") return [leagueName || room.name || "Tournament chat", termName].filter(Boolean).join(" · ");
     if (label === "CLASS") {
       return [className || room.name || "Class chat", context.programName, termName, schedule]
         .filter(Boolean)
@@ -205,7 +205,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
           { id: "Admin", label: "Admins", count: rooms.filter(r => getRoomLabel(r, currentUserId) === "ADMIN").length },
           { id: "Team", label: "Teams", count: rooms.filter(r => getRoomLabel(r, currentUserId) === "TEAM").length },
           { id: "Class", label: "Classes", count: rooms.filter(r => getRoomLabel(r, currentUserId) === "CLASS").length },
-          { id: "League", label: "Leagues", count: rooms.filter(r => getRoomLabel(r, currentUserId) === "LEAGUE").length },
+          { id: "League", label: "Tournaments", count: rooms.filter(r => getRoomLabel(r, currentUserId) === "LEAGUE").length },
           { id: "Event", label: "Holiday / Event", count: rooms.filter(r => getRoomLabel(r, currentUserId) === "EVENT").length },
         ] as const).map(({ id, label, count }) => (
           <button
@@ -292,7 +292,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             } else if (label === "LEAGUE") {
               badgeEl = (
                 <span className="px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider rounded-xs bg-cyan-50 text-cyan-700 border border-cyan-100 dark:bg-cyan-500/10 dark:text-cyan-300 dark:border-cyan-500/20">
-                  League
+                  Tournament
                 </span>
               );
             } else if (label === "EVENT") {

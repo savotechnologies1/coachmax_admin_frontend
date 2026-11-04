@@ -6,11 +6,11 @@ export default function LeaguesManagementPage() {
   return (
     <>
       <PageMeta
-        title="CoachMax | Leagues Management"
-        description="Manage your academy's leagues and competitions"
+        title="CoachMax | Tournaments Management"
+        description="Manage your academy's tournaments and competitions"
       />
       <div className="space-y-6">
-        <PageBreadcrumb pageTitle="Leagues Management" />
+        <PageBreadcrumb pageTitle="Tournaments Management" />
         <LeagueManagement />
       </div>
     </>
