@@ -1,13 +1,36 @@
 import apiClient from "./apiClient";
 
-export const getOrders = async (params?: { search?: string; status?: string; page?: number; limit?: number }) => {
+export type OrderStatus = "PENDING" | "PROCESSING" | "SHIPPED" | "DELIVERED" | "CANCELLED";
+export type OrderPaymentStatus = "PENDING" | "PAID" | "FAILED" | "REFUNDED";
+export type EffectiveOrderPaymentStatus = OrderPaymentStatus | "PAYMENT_PENDING";
+
+export interface StoreOrderListItem {
+  _id: string;
+  orderNumber?: string;
+  parent?: { fullName?: string; email?: string };
+  totalAmount?: number;
+  createdAt: string;
+  status: OrderStatus;
+  paymentStatus: OrderPaymentStatus;
+  effectivePaymentStatus?: EffectiveOrderPaymentStatus;
+  invoice?: { paymentStatus?: string };
+}
+
+export interface OrdersResponse {
+  success: boolean;
+  data: StoreOrderListItem[];
+  pagination?: { page: number; limit: number; total: number; totalPages: number };
+}
+
+export const getOrders = async (params?: { search?: string; status?: string; paymentStatus?: string; page?: number; limit?: number }): Promise<OrdersResponse> => {
   const queryParams = new URLSearchParams();
   if (params?.search) queryParams.append("search", params.search);
   if (params?.status && params.status !== "ALL") queryParams.append("status", params.status);
+  if (params?.paymentStatus && params.paymentStatus !== "ALL") queryParams.append("paymentStatus", params.paymentStatus);
   if (params?.page) queryParams.append("page", params.page.toString());
   if (params?.limit) queryParams.append("limit", params.limit.toString());
 
-  const response = await apiClient.get(`/api/admin/store/orders?${queryParams.toString()}`);
+  const response = await apiClient.get<OrdersResponse>(`/api/admin/store/orders?${queryParams.toString()}`);
   return response.data;
 };
 
@@ -87,6 +110,7 @@ export interface ProductInsights {
     lineTotalMinor: number;
     variants: Array<{ size?: string; color?: string; quantity: number }>;
     paymentStatus: string;
+    effectivePaymentStatus?: string;
     orderStatus: string;
     invoice?: { invoiceNumber?: string; paymentStatus?: string };
     createdAt: string;

@@ -2,10 +2,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getOrders, getOrderDetails, updateOrderStatus } from "../api/orderApi";
 import toast from "react-hot-toast";
 
-export const useOrders = (search?: string, status?: string, page = 1, limit = 10) => {
+export const useOrders = (params: Parameters<typeof getOrders>[0] = {}) => {
   return useQuery({
-    queryKey: ["orders", { search, status, page, limit }],
-    queryFn: () => getOrders({ search, status, page, limit }),
+    queryKey: ["orders", params],
+    queryFn: () => getOrders(params),
     placeholderData: (previousData) => previousData,
   });
 };
@@ -27,10 +27,10 @@ export const useUpdateOrderStatus = () => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["order", variables.id] });
       queryClient.invalidateQueries({ queryKey: ["storeProductInsights"] });
-      toast.success("Order status updated successfully!");
+      toast.success(variables.data.paymentStatus ? "Payment status updated." : "Order status updated.");
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.message || "Failed to update order status");
+      if (!error?._handled) toast.error(error?.response?.data?.message || "Failed to update order status");
     }
   });
 };

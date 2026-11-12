@@ -25,6 +25,11 @@ export default function OrderDetails() {
   if (isError || !data?.data) return <div className="p-8 text-center text-rose-500 font-semibold">Failed to load order details or order not found.</div>;
 
   const order = data.data;
+  const paymentStatus = order.effectivePaymentStatus ||
+    (order.paymentStatus === "FAILED" || order.paymentStatus === "REFUNDED" ? order.paymentStatus :
+      order.invoice?.paymentStatus === "PAID" ? "PAID" :
+      order.invoice?.paymentStatus === "PAYMENT_PENDING" ? "PAYMENT_PENDING" : order.paymentStatus || "PENDING");
+  const paymentLocked = paymentStatus === "PAID" || paymentStatus === "REFUNDED";
 
   const handleStatusChange = (newStatus: string) => {
     updateStatusMutation.mutate({ id: order._id, data: { status: newStatus } });
@@ -52,7 +57,7 @@ export default function OrderDetails() {
             </div>
             <div className="flex flex-col items-end text-right">
               <div className="flex items-center gap-3">
-                <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">Status</span>
+                <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">Order status</span>
                 <select
                   value={order.status || "PENDING"}
                   onChange={(e) => handleStatusChange(e.target.value)}
@@ -71,23 +76,28 @@ export default function OrderDetails() {
                 </select>
               </div>
               <div className="flex items-center gap-3 mt-3">
-                <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">Payment</span>
+                <span className="text-sm font-bold text-gray-500 uppercase tracking-wide">Payment status</span>
                 <select
-                  value={order.paymentStatus || "PENDING"}
+                  aria-label="Payment status"
+                  value={paymentStatus}
                   onChange={(e) => handlePaymentStatusChange(e.target.value)}
-                  disabled={updateStatusMutation.isPending || !can("orders", "edit")}
+                  disabled={updateStatusMutation.isPending || !can("orders", "edit") || paymentLocked}
+                  title={paymentLocked ? "Use Finance to refund or correct an approved payment" : undefined}
                   className={`rounded-none border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold outline-none disabled:opacity-50 ${
-                    order.paymentStatus === "PAID" ? "text-emerald-600 border-emerald-200 bg-emerald-50" : 
-                    order.paymentStatus === "FAILED" ? "text-rose-600 border-rose-200 bg-rose-50" : 
+                    paymentStatus === "PAID" ? "text-emerald-600 border-emerald-200 bg-emerald-50" :
+                    paymentStatus === "FAILED" || paymentStatus === "REFUNDED" ? "text-rose-600 border-rose-200 bg-rose-50" :
                     "text-amber-600 border-amber-200 bg-amber-50"
                   }`}
                 >
-                  <option value="PENDING">PENDING</option>
+                  <option value="PENDING" disabled={paymentStatus === "PAYMENT_PENDING"}>PENDING</option>
+                  <option value="PAYMENT_PENDING" disabled>PAYMENT PENDING</option>
                   <option value="PAID">PAID</option>
-                  <option value="FAILED">FAILED</option>
-                  <option value="REFUNDED">REFUNDED</option>
+                  <option value="FAILED" disabled={paymentStatus === "PAYMENT_PENDING"}>FAILED</option>
+                  <option value="REFUNDED" disabled>REFUNDED</option>
                 </select>
               </div>
+              {paymentStatus === "PAYMENT_PENDING" && <p className="mt-1 text-xs text-amber-700">Payment proof is awaiting approval. Choose PAID to approve it.</p>}
+              {paymentLocked && <p className="mt-1 text-xs text-gray-500">Use Finance for refunds or corrections to approved payments.</p>}
               <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 mt-3">Placed: {formatTimestampDate(order.createdAt)}</p>
               {order.paymentMethod && <p className="text-sm font-semibold text-gray-500 mt-1">Payment Method: {order.paymentMethod}</p>}
             </div>
