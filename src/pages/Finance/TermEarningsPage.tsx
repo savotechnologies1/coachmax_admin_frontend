@@ -1,13 +1,15 @@
 import { formatTimestampDate } from "../../utils/dateTime";
-import React, { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { Link } from "react-router";
 import PageMeta from "../../components/common/PageMeta";
-import PageBreadcrumb from "../../components/common/PageBreadcrumb";
+import AnimatedNumber from "../../components/common/AnimatedNumber";
+import TermEarningsVisuals from "./TermEarningsVisuals";
+import "./termEarnings.css";
 import { useCurrentTerm } from "../../hooks/useCurrentTerm";
 import { useTermEarnings } from "../../hooks/useTermEarnings";
 import { useCoachAccess } from "../../hooks/useCoachAccess";
-import { StatusIcon, getPlayerStatusTextClass } from "../../components/common/StatusColorCode";
+import { getPlayerStatusTextClass } from "../../components/common/StatusColorCode";
 import {
-  DollarSign,
   CheckCircle2,
   Clock,
   Calendar,
@@ -23,17 +25,20 @@ import {
   ShoppingBag,
   Trophy,
   SunMedium,
-  Layers,
-  ArrowRight,
-  Percent,
-  Check,
   ChevronRight,
   ArrowUpRight,
   ArrowDownRight,
   Award,
-  Filter,
+  Home,
 } from "lucide-react";
 import toast from "react-hot-toast";
+
+const earningsCurrencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
 
 const STATUS_CONFIG: Record<
   string,
@@ -243,12 +248,7 @@ export default function TermEarningsPage() {
 
   // Format currency helper
   const formatCurrency = (val: number | undefined | null) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }).format(val || 0);
+    return earningsCurrencyFormatter.format(val || 0);
   };
 
   // Metrics from API summary
@@ -376,6 +376,39 @@ export default function TermEarningsPage() {
         terms.find((t: any) => (t._id || t.id) === selectedTermId)?.name ||
         "Academic Term";
 
+  const kpiCards = [
+    {
+      label: "Gross Expected", value: totalExpected, icon: TrendingUp,
+      panel: "border-blue-200 bg-gradient-to-br from-blue-50 via-white to-blue-100/80 dark:border-blue-900 dark:from-blue-950/50 dark:via-slate-900 dark:to-slate-900",
+      tone: "text-[#0b3d9b] dark:text-blue-300", iconTone: "bg-blue-100 text-[#1257ed] dark:bg-blue-900/70 dark:text-blue-300",
+      bar: "bg-[#1257ed]", width: 100, detail: "Total value across all streams",
+    },
+    {
+      label: "Cash Received", value: totalPaid, icon: CheckCircle2,
+      panel: "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-emerald-100/70 dark:border-emerald-900 dark:from-emerald-950/50 dark:via-slate-900 dark:to-slate-900",
+      tone: "text-emerald-700 dark:text-emerald-300", iconTone: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/70 dark:text-emerald-300",
+      bar: "bg-emerald-500", width: collectionRate, detail: <><AnimatedNumber value={collectionRate} />% of net expected</>,
+    },
+    {
+      label: "Pending Balance", value: totalPending, icon: Clock,
+      panel: "border-orange-200 bg-gradient-to-br from-orange-50 via-white to-orange-100/70 dark:border-orange-900 dark:from-orange-950/50 dark:via-slate-900 dark:to-slate-900",
+      tone: "text-orange-700 dark:text-orange-300", iconTone: "bg-orange-100 text-orange-600 dark:bg-orange-900/70 dark:text-orange-300",
+      bar: "bg-orange-500", width: totalNetExpected > 0 ? (totalPending / totalNetExpected) * 100 : 0, detail: "Awaiting collection or verification",
+    },
+    {
+      label: "Handshakes & Grants", value: totalHandshake, icon: Award,
+      panel: "border-violet-200 bg-gradient-to-br from-violet-50 via-white to-violet-100/70 dark:border-violet-900 dark:from-violet-950/50 dark:via-slate-900 dark:to-slate-900",
+      tone: "text-violet-700 dark:text-violet-300", iconTone: "bg-violet-100 text-violet-600 dark:bg-violet-900/70 dark:text-violet-300",
+      bar: "bg-violet-500", width: totalExpected > 0 ? (totalHandshake / totalExpected) * 100 : 0, detail: <><AnimatedNumber value={totalHandshakeCount} /> scholarship concessions</>,
+    },
+    {
+      label: "Trial Pipeline", value: totalTrialPotential, icon: Sparkles,
+      panel: "border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-cyan-100/70 dark:border-cyan-900 dark:from-cyan-950/50 dark:via-slate-900 dark:to-slate-900",
+      tone: "text-cyan-700 dark:text-cyan-300", iconTone: "bg-cyan-100 text-cyan-600 dark:bg-cyan-900/70 dark:text-cyan-300",
+      bar: "bg-cyan-500", width: totalExpected > 0 ? (totalTrialPotential / totalExpected) * 100 : 0, detail: <><AnimatedNumber value={totalTrialCount} /> active trial students</>,
+    },
+  ];
+
   return (
     <>
       <PageMeta
@@ -384,287 +417,105 @@ export default function TermEarningsPage() {
       />
 
       <div className="space-y-6">
-        {/* TOP BAR / BREADCRUMB */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <PageBreadcrumb pageTitle="Term Earnings & Revenue Intel" items={[{ name: "Finance", path: "/invoices" }]} />
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight mt-1 flex items-center gap-2">
-              <span>Financial Intelligence & Term Earnings</span>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
-                Live Audited
-              </span>
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Multi-stream financial analytics across Academies, Tournaments, Camps & Store with Handshake scholarship tracking.
-            </p>
+        {/* Header and actions */}
+        <header className="finance-enter flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-100 text-[#0047FF] dark:bg-blue-950/60">
+              <TrendingUp className="h-6 w-6" />
+            </div>
+            <div>
+              <nav aria-label="Breadcrumb" className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                <Link to="/" className="inline-flex items-center gap-1 hover:text-[#0047FF]"><Home size={12} /> Home</Link>
+                <ChevronRight size={12} aria-hidden="true" />
+                <Link to="/invoices" className="hover:text-[#0047FF]">Finance</Link>
+                <ChevronRight size={12} aria-hidden="true" />
+                <span className="font-bold text-[#0047FF]">Term Earnings</span>
+              </nav>
+              <h1 className="text-2xl font-black tracking-tight text-[#071b4e] dark:text-white sm:text-3xl">Financial Intelligence Dashboard</h1>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Track expected fees, collections and concessions across every revenue stream.</p>
+            </div>
           </div>
-
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={() => refetch()}
-              disabled={isEarningsLoading || isRefetching}
-              className="px-3.5 py-2 text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs rounded-none"
-              title="Refresh Live Data"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefetching ? "animate-spin text-[#0047FF]" : ""}`} />
-              <span>Refresh</span>
+          <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
+            <button type="button" onClick={() => refetch()} disabled={isEarningsLoading || isRefetching} title="Refresh live data"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#0047FF] disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+              <RefreshCw className={"h-4 w-4 " + (isRefetching ? "animate-spin" : "")} />Refresh
             </button>
-
-            {access.can("reports", "export") && <button
-              onClick={handleExportCSV}
-              className="px-4 py-2 text-xs font-bold bg-[#0047FF] hover:bg-blue-700 text-white rounded-none transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Export CSV Audit</span>
+            {access.can("reports", "export") && <button type="button" onClick={handleExportCSV}
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#1257ed] px-4 text-xs font-bold text-white shadow-[0_8px_20px_rgba(18,87,237,.2)] transition hover:-translate-y-0.5 hover:bg-[#0047FF] motion-reduce:transform-none">
+              <FileSpreadsheet className="h-4 w-4" />Export CSV
             </button>}
           </div>
-        </div>
+        </header>
 
-        {/* HERO EXECUTIVE CARD & SCOPE CONTROLS */}
-        <div className="bg-[#031549] text-white p-6 lg:p-7 rounded-none border-l-4 border-[#0047FF] shadow-xl relative overflow-hidden">
-          <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 opacity-5 pointer-events-none">
-            <DollarSign className="w-80 h-80 text-white" />
-          </div>
-
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
-            <div>
-              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                {/* Segmented Scope Switcher */}
-                <div className="inline-flex rounded bg-white/10 p-1 border border-white/15">
-                  <button
-                    onClick={() => setScopeMode("SINGLE")}
-                    className={`px-3 py-1 text-xs font-bold transition-all rounded ${
-                      scopeMode === "SINGLE"
-                        ? "bg-[#0047FF] text-white shadow-xs"
-                        : "text-gray-300 hover:text-white"
-                    }`}
-                  >
-                    📅 Single Term
-                  </button>
-                  <button
-                    onClick={() => setScopeMode("COMPARE")}
-                    className={`px-3 py-1 text-xs font-bold transition-all rounded ${
-                      scopeMode === "COMPARE"
-                        ? "bg-[#0047FF] text-white shadow-xs"
-                        : "text-gray-300 hover:text-white"
-                    }`}
-                  >
-                    ⚖️ Compare 2 Terms
-                  </button>
-                  <button
-                    onClick={() => setScopeMode("ALL_TIME")}
-                    className={`px-3 py-1 text-xs font-bold transition-all rounded ${
-                      scopeMode === "ALL_TIME"
-                        ? "bg-[#0047FF] text-white shadow-xs"
-                        : "text-gray-300 hover:text-white"
-                    }`}
-                  >
-                    🌐 All-Time Lifetime
-                  </button>
+        {/* Report controls */}
+        <section aria-label="Report scope and term" className="finance-enter rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_8px_26px_rgba(7,27,78,.04)] dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="inline-flex flex-wrap items-center gap-1 rounded-xl bg-[#eef3ff] p-1 dark:bg-slate-800" role="group" aria-label="Report view">
+                  <button type="button" aria-pressed={scopeMode === "SINGLE"} onClick={() => setScopeMode("SINGLE")}
+                    className={"rounded-lg px-3 py-2 text-xs font-bold transition " + (scopeMode === "SINGLE" ? "bg-[#1257ed] text-white shadow-sm" : "text-slate-600 hover:bg-white/70 dark:text-slate-300 dark:hover:bg-slate-700")}>Single term</button>
+                  <button type="button" aria-pressed={scopeMode === "COMPARE"} onClick={() => setScopeMode("COMPARE")}
+                    className={"rounded-lg px-3 py-2 text-xs font-bold transition " + (scopeMode === "COMPARE" ? "bg-[#1257ed] text-white shadow-sm" : "text-slate-600 hover:bg-white/70 dark:text-slate-300 dark:hover:bg-slate-700")}>Compare 2 terms</button>
+                  <button type="button" aria-pressed={scopeMode === "ALL_TIME"} onClick={() => setScopeMode("ALL_TIME")}
+                    className={"rounded-lg px-3 py-2 text-xs font-bold transition " + (scopeMode === "ALL_TIME" ? "bg-[#1257ed] text-white shadow-sm" : "text-slate-600 hover:bg-white/70 dark:text-slate-300 dark:hover:bg-slate-700")}>All time</button>
                 </div>
-
-                <span className="text-xs font-semibold text-gray-300 ml-2">
-                  {totalEnrolledPlayers} Enrolled Records • {totalTrialCount} Active Trials • {totalHandshakeCount} Handshakes
-                </span>
+                <span className="min-w-0 truncate rounded-lg bg-blue-50 px-2.5 py-1.5 text-xs font-bold text-[#0b3d9b] dark:bg-blue-950/40 dark:text-blue-300">{activeTermDisplay}</span>
               </div>
-
-              <h2 className="text-2xl lg:text-3xl font-black text-white tracking-tight">
-                {activeTermDisplay}
-              </h2>
-              <p className="text-xs text-gray-300 mt-1 max-w-2xl leading-relaxed">
-                {scopeMode === "COMPARE"
-                  ? "Side-by-side comparative growth analytics between two terms with net delta and player conversion tracking."
-                  : scopeMode === "ALL_TIME"
-                  ? "Lifetime consolidated financial overview aggregating all academic terms, tournaments, holiday camps, and store orders."
-                  : "Comprehensive financial overview tracking expected nominal revenue, handshake concessions, approved collections, and prospective trials."}
+              <p className="mt-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                <AnimatedNumber value={totalEnrolledPlayers} /> enrolled records <span className="mx-1.5 text-slate-300">•</span> <AnimatedNumber value={totalTrialCount} /> active trials <span className="mx-1.5 text-slate-300">•</span> <AnimatedNumber value={totalHandshakeCount} /> handshakes
               </p>
             </div>
-
-            {/* Scope Selection Dropdowns */}
-            <div className="flex items-center gap-3 flex-wrap shrink-0">
-              {scopeMode !== "ALL_TIME" && (
-                <>
-                  {/* Year Selector */}
-                  <div className="flex items-center gap-2.5 bg-white/10 p-3 rounded-none backdrop-blur-xs border border-white/15">
-                    <Calendar className="w-4 h-4 text-blue-300 shrink-0" />
-                    <div className="flex flex-col">
-                      <label className="text-[9px] font-bold uppercase tracking-wider text-gray-300">
-                        Year
-                      </label>
-                      <select
-                        value={selectedYear}
-                        onChange={(e) => {
-                          setSelectedYear(e.target.value);
-                          setSelectedClassId("ALL");
-                        }}
-                        className="bg-transparent text-white text-xs font-bold outline-none cursor-pointer pr-3 py-0.5 border-b border-white/20 focus:border-blue-400"
-                      >
-                        {yearOptions.map((y) => (
-                          <option key={y} value={y} className="text-gray-900">
-                            {y}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Term Selector A */}
-                  <div className="flex items-center gap-2.5 bg-white/10 p-3 rounded-none backdrop-blur-xs border border-white/15">
-                    <GraduationCap className="w-4 h-4 text-blue-300 shrink-0" />
-                    <div className="flex flex-col">
-                      <label className="text-[9px] font-bold uppercase tracking-wider text-gray-300">
-                        {scopeMode === "COMPARE" ? "Term A (Baseline)" : "Select Term"}
-                      </label>
-                      <select
-                        value={selectedTermId || ""}
-                        onChange={(e) => {
-                          setSelectedTermId(e.target.value);
-                          setSelectedClassId("ALL");
-                        }}
-                        className="bg-transparent text-white text-xs font-bold outline-none cursor-pointer pr-3 py-0.5 border-b border-white/20 focus:border-blue-400 max-w-[150px] truncate"
-                      >
-                        {terms.map((t: any) => (
-                          <option key={t._id || t.id} value={t._id || t.id} className="text-gray-900">
-                            {t.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Secondary Term Selector for Comparison */}
-                  {scopeMode === "COMPARE" && (
-                    <div className="flex items-center gap-2.5 bg-indigo-950/60 p-3 rounded-none backdrop-blur-xs border border-indigo-400/30">
-                      <Trophy className="w-4 h-4 text-indigo-300 shrink-0" />
-                      <div className="flex flex-col">
-                        <label className="text-[9px] font-bold uppercase tracking-wider text-indigo-200">
-                          Term B (Compare)
-                        </label>
-                        <select
-                          value={secondaryTermId}
-                          onChange={(e) => setSecondaryTermId(e.target.value)}
-                          className="bg-transparent text-white text-xs font-bold outline-none cursor-pointer pr-3 py-0.5 border-b border-indigo-400/40 focus:border-indigo-300 max-w-[150px] truncate"
-                        >
-                          {terms.map((t: any) => (
-                            <option key={t._id || t.id} value={t._id || t.id} className="text-gray-900">
-                              {t.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+            {scopeMode !== "ALL_TIME" && <div className="flex flex-wrap items-end gap-2.5">
+              <label className="flex min-w-[110px] flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Year
+                <span className="relative flex items-center"><Calendar className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-[#1257ed]" />
+                  <select value={selectedYear} onChange={(e) => { setSelectedYear(e.target.value); setSelectedClassId("ALL"); }}
+                    className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-7 text-xs font-bold normal-case text-[#071b4e] outline-none focus:border-[#1257ed] dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+                    {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select><ChevronDown className="pointer-events-none absolute right-2 h-3.5 w-3.5 text-slate-500" /></span>
+              </label>
+              <label className="flex min-w-[170px] flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {scopeMode === "COMPARE" ? "Term A (baseline)" : "Select term"}
+                <span className="relative flex items-center"><GraduationCap className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-[#1257ed]" />
+                  <select value={selectedTermId || ""} onChange={(e) => { setSelectedTermId(e.target.value); setSelectedClassId("ALL"); }}
+                    className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-7 text-xs font-bold normal-case text-[#071b4e] outline-none focus:border-[#1257ed] dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+                    {terms.map((t: any) => <option key={t._id || t.id} value={t._id || t.id}>{t.name}</option>)}
+                  </select><ChevronDown className="pointer-events-none absolute right-2 h-3.5 w-3.5 text-slate-500" /></span>
+              </label>
+              {scopeMode === "COMPARE" && <label className="flex min-w-[170px] flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Term B (compare)
+                <span className="relative flex items-center"><Trophy className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-[#1257ed]" />
+                  <select value={secondaryTermId} onChange={(e) => setSecondaryTermId(e.target.value)}
+                    className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-7 text-xs font-bold normal-case text-[#071b4e] outline-none focus:border-[#1257ed] dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+                    {terms.map((t: any) => <option key={t._id || t.id} value={t._id || t.id}>{t.name}</option>)}
+                  </select><ChevronDown className="pointer-events-none absolute right-2 h-3.5 w-3.5 text-slate-500" /></span>
+              </label>}
+            </div>}
           </div>
-        </div>
-
-        {/* PRIMARY KPI METRICS (GRID OF 5 EXECUTIVE CARDS) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          {/* Card 1: Expected Gross Revenue */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-none border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Gross Expected
-              </span>
-              <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center">
-                <DollarSign className="w-4 h-4" />
+        </section>
+        {/* Executive metrics */}
+        <section aria-label="Financial summary" className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-5">
+          {kpiCards.map((card, index) => (
+            <div key={card.label} className={"finance-kpi-card finance-enter group relative flex min-h-[158px] flex-col overflow-hidden rounded-2xl border p-4 shadow-[0_8px_25px_rgba(7,27,78,.05)] transition hover:-translate-y-1 hover:shadow-[0_14px_35px_rgba(7,27,78,.11)] motion-reduce:transform-none " + card.panel}
+              style={{ animationDelay: (index * 75) + "ms" }}>
+              <div className="relative z-10 flex items-start justify-between gap-2">
+                <span className={"flex h-10 w-10 items-center justify-center rounded-xl " + card.iconTone}><card.icon className="h-5 w-5" /></span>
+                <ArrowUpRight className={"h-4 w-4 opacity-50 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5 motion-reduce:transform-none " + card.tone} aria-hidden="true" />
+              </div>
+              <p className="relative z-10 mt-3 text-[11px] font-bold tracking-wide text-slate-600 dark:text-slate-300">{card.label}</p>
+              <AnimatedNumber value={card.value} formatter={formatCurrency}
+                className={"relative z-10 mt-0.5 block text-[27px] font-black leading-tight tracking-tight tabular-nums " + card.tone} />
+              <p className="relative z-10 mt-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">{card.detail}</p>
+              <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1 bg-white/60 dark:bg-slate-800">
+                <div className={"finance-progress h-full origin-left " + card.bar}
+                  style={{ width: Math.min(100, Math.max(0, card.width)) + "%" }} />
               </div>
             </div>
-            <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-              {formatCurrency(totalExpected)}
-            </div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Nominal value across all 4 streams before concessions.
-            </p>
-          </div>
-
-          {/* Card 2: Handshakes & Scholarships (Discount Concessions) */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-none border border-teal-200 dark:border-teal-900/60 shadow-xs relative overflow-hidden bg-gradient-to-br from-teal-50/20 to-transparent">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400">
-                Handshakes & Grants
-              </span>
-              <div className="w-8 h-8 rounded-full bg-teal-50 dark:bg-teal-950/40 text-teal-600 flex items-center justify-center text-sm" title="Handshake scholarship concessions">
-                🤝
-              </div>
-            </div>
-            <div className="text-2xl font-black text-teal-700 dark:text-teal-400 tracking-tight">
-              {formatCurrency(totalHandshake)}
-            </div>
-            <p className="text-[10px] text-teal-600 dark:text-teal-500 mt-1 font-semibold">
-              {totalHandshakeCount} Handshake Scholarships / Fee Concessions
-            </p>
-          </div>
-
-          {/* Card 3: Net Invoiced & Cash Collected */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-none border border-emerald-200 dark:border-emerald-900/60 shadow-xs relative overflow-hidden bg-gradient-to-br from-emerald-50/20 to-transparent">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-                Cash Received
-              </span>
-              <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center">
-                <CheckCircle2 className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
-              {formatCurrency(totalPaid)}
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(100, Math.max(0, collectionRate))}%` }}
-                />
-              </div>
-              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                {collectionRate}%
-              </span>
-            </div>
-          </div>
-
-          {/* Card 4: Pending & Outstanding */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-none border border-amber-200 dark:border-amber-900/60 shadow-xs relative overflow-hidden bg-gradient-to-br from-amber-50/20 to-transparent">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                Pending Balance
-              </span>
-              <div className="w-8 h-8 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-600 flex items-center justify-center">
-                <Clock className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="text-2xl font-black text-amber-600 dark:text-amber-400 tracking-tight">
-              {formatCurrency(totalPending)}
-            </div>
-            <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-1 font-semibold">
-              Unpaid invoices & pending verification
-            </p>
-          </div>
-
-          {/* Card 5: Trial Conversion Pipeline */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-none border border-cyan-200 dark:border-cyan-900/60 shadow-xs relative overflow-hidden bg-gradient-to-br from-cyan-50/20 to-transparent">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-700 dark:text-cyan-400">
-                Trial Pipeline
-              </span>
-              <div className="w-8 h-8 rounded-full bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 flex items-center justify-center">
-                <Sparkles className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="text-2xl font-black text-cyan-700 dark:text-cyan-400 tracking-tight">
-              {formatCurrency(totalTrialPotential)}
-            </div>
-            <p className="text-[10px] text-cyan-600 dark:text-cyan-500 mt-1 font-semibold">
-              {totalTrialCount} Active Trial Students to Convert
-            </p>
-          </div>
-        </div>
-
+          ))}
+        </section>
         {/* TWO-TERM COMPARISON SCORECARD (Visible when Compare Mode is Active) */}
         {scopeMode === "COMPARE" && comparison && (
-          <div className="bg-gradient-to-r from-indigo-900 via-blue-900 to-[#031549] text-white p-6 rounded-none shadow-md border border-indigo-700/40">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-indigo-700/50">
+          <div className="finance-enter rounded-2xl border border-indigo-700/40 bg-gradient-to-r from-indigo-900 via-blue-900 to-[#031549] p-5 text-white shadow-[0_10px_30px_rgba(7,27,78,.14)] sm:p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-indigo-700/50 pb-3">
               <div className="flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-indigo-300" />
                 <h3 className="text-sm font-bold uppercase tracking-wider text-white">
@@ -749,394 +600,70 @@ export default function TermEarningsPage() {
           </div>
         )}
 
-        {/* FINANCIAL FUNNEL & MULTI-STREAM REVENUE DISTRIBUTION */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Visual Financial Funnel (7 Cols) */}
-          <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-none shadow-xs">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-[#0047FF]" />
-                  <span>Financial Flow & Revenue Funnel</span>
-                </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Conversion breakdown from gross potential fees down to realized cash and active trials.
-                </p>
-              </div>
-              <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-                100% Full Audit
-              </span>
-            </div>
+        <TermEarningsVisuals summary={summary} formatCurrency={formatCurrency} />
 
-            {/* Funnel Steps */}
-            <div className="space-y-3.5 pt-2">
-              {/* Stage 1: Gross Potential */}
-              <div className="relative">
-                <div className="flex items-center justify-between text-xs font-bold mb-1">
-                  <span className="text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-blue-600" />
-                    <span>1. Total Gross Potential</span>
-                  </span>
-                  <span className="text-slate-900 dark:text-white font-black">{formatCurrency(totalExpected)}</span>
-                </div>
-                <div className="w-full bg-slate-100 dark:bg-slate-800 h-3 rounded-none overflow-hidden">
-                  <div className="bg-blue-600 h-full w-full" />
-                </div>
-              </div>
-
-              {/* Stage 2: Handshakes & Scholarships */}
-              <div className="relative pl-3 border-l-2 border-teal-400">
-                <div className="flex items-center justify-between text-xs font-bold mb-1">
-                  <span className="text-teal-700 dark:text-teal-400 flex items-center gap-1.5">
-                    <span>🤝 2. Handshakes & Scholarships (Concessions)</span>
-                  </span>
-                  <span className="text-teal-700 dark:text-teal-400 font-bold">
-                    - {formatCurrency(totalHandshake)} ({totalExpected > 0 ? Math.round((totalHandshake / totalExpected) * 100) : 0}%)
-                  </span>
-                </div>
-                <div className="w-full bg-slate-100 dark:bg-slate-800 h-2.5 rounded-none overflow-hidden">
-                  <div
-                    className="bg-teal-500 h-full transition-all"
-                    style={{
-                      width: `${Math.min(100, totalExpected > 0 ? (totalHandshake / totalExpected) * 100 : 0)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Stage 3: Net Billed Invoiced Target */}
-              <div className="relative">
-                <div className="flex items-center justify-between text-xs font-bold mb-1">
-                  <span className="text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-indigo-600" />
-                    <span>3. Net Invoiced Target (Net Expected)</span>
-                  </span>
-                  <span className="text-indigo-600 dark:text-indigo-400 font-black">{formatCurrency(totalNetExpected)}</span>
-                </div>
-                <div className="w-full bg-slate-100 dark:bg-slate-800 h-3 rounded-none overflow-hidden">
-                  <div
-                    className="bg-indigo-600 h-full transition-all"
-                    style={{
-                      width: `${Math.min(100, totalExpected > 0 ? (totalNetExpected / totalExpected) * 100 : 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Stage 4: Split into Cash Collected vs Pending */}
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                {/* Collected */}
-                <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded">
-                  <div className="flex items-center justify-between text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                    <span className="flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Cash Realized</span>
-                    </span>
-                    <span>{collectionRate}%</span>
-                  </div>
-                  <div className="text-lg font-black text-emerald-700 dark:text-emerald-400 mt-1">
-                    {formatCurrency(totalPaid)}
-                  </div>
-                </div>
-
-                {/* Pending */}
-                <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 rounded">
-                  <div className="flex items-center justify-between text-xs font-bold text-amber-800 dark:text-amber-300">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Pending Collection</span>
-                    </span>
-                    <span>{100 - collectionRate}%</span>
-                  </div>
-                  <div className="text-lg font-black text-amber-700 dark:text-amber-400 mt-1">
-                    {formatCurrency(totalPending)}
-                  </div>
-                </div>
-              </div>
-
-              {/* Stage 5: Prospective Trial Pipeline */}
-              <div className="p-3 bg-cyan-50/60 dark:bg-cyan-950/20 border border-cyan-200 dark:border-cyan-800/40 rounded flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-cyan-800 dark:text-cyan-300 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-cyan-600" />
-                    <span>Prospective Free Trial Pipeline</span>
-                  </div>
-                  <p className="text-[10px] text-cyan-600 dark:text-cyan-400 mt-0.5">
-                    {totalTrialCount} prospective players currently testing programs.
-                  </p>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-black text-cyan-700 dark:text-cyan-400">
-                    +{formatCurrency(totalTrialPotential)}
-                  </div>
-                  <span className="text-[9px] uppercase font-bold text-cyan-600 bg-cyan-100 dark:bg-cyan-900/40 px-1.5 py-0.5 rounded">
-                    Unbilled Opportunity
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Revenue Stream Breakdown (5 Cols) */}
-          <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-none shadow-xs flex flex-col justify-between">
+        {/* Detailed financial ledger */}
+        <section aria-label="Player financial ledger" className="finance-enter overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_28px_rgba(18,41,91,.06)] dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-col gap-3 bg-gradient-to-r from-[#071b50] via-[#082862] to-[#0a3674] px-5 py-4 text-white lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-[#0047FF]" />
-                    <span>Revenue Streams</span>
-                  </h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Contribution per commercial vertical.
-                  </p>
-                </div>
-              </div>
-
-              {/* Stream Cards */}
-              <div className="space-y-3">
-                {/* 1. Academy Classes */}
-                {(() => {
-                  const data = streamData.academy || {};
-                  const exp = data.expected || 0;
-                  const paid = data.paid || 0;
-                  const pct = totalExpected > 0 ? Math.round((exp / totalExpected) * 100) : 0;
-                  return (
-                    <div className="p-3 border border-slate-100 dark:border-slate-800 rounded hover:border-blue-300 dark:hover:border-blue-800 transition-all bg-slate-50/50 dark:bg-slate-950/30">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <GraduationCap className="w-4 h-4 text-blue-600" />
-                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                            Academy Classes
-                          </span>
-                        </div>
-                        <span className="text-xs font-black text-slate-900 dark:text-white">
-                          {formatCurrency(exp)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                        <span>Paid: {formatCurrency(paid)}</span>
-                        <span>{pct}% share</span>
-                      </div>
-                      <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-blue-600 h-full rounded-full" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* 2. Tournaments */}
-                {(() => {
-                  const data = streamData.leagues || {};
-                  const exp = data.expected || 0;
-                  const paid = data.paid || 0;
-                  const pct = totalExpected > 0 ? Math.round((exp / totalExpected) * 100) : 0;
-                  return (
-                    <div className="p-3 border border-slate-100 dark:border-slate-800 rounded hover:border-amber-300 dark:hover:border-amber-800 transition-all bg-slate-50/50 dark:bg-slate-950/30">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <Trophy className="w-4 h-4 text-amber-500" />
-                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                            Tournaments
-                          </span>
-                        </div>
-                        <span className="text-xs font-black text-slate-900 dark:text-white">
-                          {formatCurrency(exp)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                        <span>Paid: {formatCurrency(paid)}</span>
-                        <span>{pct}% share</span>
-                      </div>
-                      <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-amber-500 h-full rounded-full" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* 3. Holiday Camps & Events */}
-                {(() => {
-                  const data = streamData.camps || {};
-                  const exp = data.expected || 0;
-                  const paid = data.paid || 0;
-                  const pct = totalExpected > 0 ? Math.round((exp / totalExpected) * 100) : 0;
-                  return (
-                    <div className="p-3 border border-slate-100 dark:border-slate-800 rounded hover:border-emerald-300 dark:hover:border-emerald-800 transition-all bg-slate-50/50 dark:bg-slate-950/30">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <SunMedium className="w-4 h-4 text-emerald-500" />
-                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                            Holiday Camps & Events
-                          </span>
-                        </div>
-                        <span className="text-xs font-black text-slate-900 dark:text-white">
-                          {formatCurrency(exp)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                        <span>Paid: {formatCurrency(paid)}</span>
-                        <span>{pct}% share</span>
-                      </div>
-                      <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* 4. Store Merchandise */}
-                {(() => {
-                  const data = streamData.store || {};
-                  const exp = data.expected || 0;
-                  const paid = data.paid || 0;
-                  const pct = totalExpected > 0 ? Math.round((exp / totalExpected) * 100) : 0;
-                  return (
-                    <div className="p-3 border border-slate-100 dark:border-slate-800 rounded hover:border-purple-300 dark:hover:border-purple-800 transition-all bg-slate-50/50 dark:bg-slate-950/30">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <ShoppingBag className="w-4 h-4 text-purple-500" />
-                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                            Store & Merchandise
-                          </span>
-                        </div>
-                        <span className="text-xs font-black text-slate-900 dark:text-white">
-                          {formatCurrency(exp)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                        <span>Paid: {formatCurrency(paid)}</span>
-                        <span>{pct}% share</span>
-                      </div>
-                      <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-purple-500 h-full rounded-full" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
+              <h2 className="flex flex-wrap items-center gap-2.5 text-base font-bold tracking-tight">
+                <Users className="h-4 w-4 text-sky-200" />
+                Player Financial Ledger
+                <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-[10px] font-bold text-blue-50">{filteredRecords.length} records</span>
+              </h2>
+              <p className="mt-1 text-[11px] text-blue-100/80">Fees, concessions, collections and balances for each player or order.</p>
             </div>
-
-            <div className="pt-4 mt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
-              <span>Overall Realized Collection:</span>
-              <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                {formatCurrency(totalPaid)} ({collectionRate}%)
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* LEDGER & DETAILED PLAYER ROSTERS SECTION */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-none shadow-xs">
-          {/* Header Controls: Search & Filters */}
-          <div className="p-5 border-b border-slate-200 dark:border-slate-800 space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Particular Player & Item Financial Ledger</span>
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                    {filteredRecords.length} Records
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Detailed individual player records showing gross fee, handshake scholarship discount, net payable, and live payment status.
-                </p>
-              </div>
-
-              {/* View Switcher Tabs */}
-              <div className="inline-flex rounded-none bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700">
-                <button
-                  onClick={() => setActiveLedgerTab("ALL_PLAYERS")}
-                  className={`px-3 py-1.5 text-xs font-bold transition-all ${
-                    activeLedgerTab === "ALL_PLAYERS"
-                      ? "bg-white dark:bg-slate-900 text-[#0047FF] shadow-xs"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                  }`}
-                >
-                  All Players Ledger
-                </button>
-                <button
-                  onClick={() => setActiveLedgerTab("BY_CLASS")}
-                  className={`px-3 py-1.5 text-xs font-bold transition-all ${
-                    activeLedgerTab === "BY_CLASS"
-                      ? "bg-white dark:bg-slate-900 text-[#0047FF] shadow-xs"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                  }`}
-                >
-                  Class-by-Class View ({rawClasses.length})
-                </button>
-              </div>
-            </div>
-
-            {/* Filter Pills & Search */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-2">
-              {/* Stream Filters */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {[
-                  { id: "ALL", label: "All Streams" },
-                  { id: "ACADEMY", label: "Academy Classes" },
-                  { id: "LEAGUES", label: "Tournaments" },
-                  { id: "CAMPS", label: "Holiday Camps" },
-                  { id: "STORE", label: "Store Orders" },
-                ].map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setSelectedStream(s.id)}
-                    className={`px-3 py-1 text-xs font-bold transition-all rounded ${
-                      selectedStream === s.id
-                        ? "bg-[#0047FF] text-white shadow-xs"
-                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Status and Search Controls */}
-              <div className="flex items-center gap-2.5 flex-wrap">
-                {/* Status Dropdown */}
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="px-3 py-1.5 text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 outline-none rounded cursor-pointer"
-                >
-                  <option value="ALL">All Statuses</option>
-                  <option value="PAID">Paid in Full</option>
-                  <option value="HANDSHAKE">Handshake / Scholarship</option>
-                  <option value="TRIAL">Free Trial</option>
-                  <option value="PENDING">Pending Approval</option>
-                  <option value="UNPAID">Unpaid Invoices</option>
-                  <option value="PARTIAL">Partially Paid</option>
-                </select>
-
-                {/* Search Input */}
-                <div className="relative min-w-[220px]">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search player, parent, class..."
-                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none rounded focus:border-[#0047FF]"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery("")}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              </div>
+            <div className="inline-flex self-start rounded-xl border border-white/15 bg-white/10 p-1 lg:self-auto" role="group" aria-label="Ledger view">
+              <button type="button" aria-pressed={activeLedgerTab === "ALL_PLAYERS"} onClick={() => setActiveLedgerTab("ALL_PLAYERS")}
+                className={"rounded-lg px-3 py-1.5 text-[11px] font-bold transition " + (activeLedgerTab === "ALL_PLAYERS" ? "bg-white text-[#0b3d9b] shadow-sm" : "text-blue-100 hover:bg-white/10")}>All players</button>
+              <button type="button" aria-pressed={activeLedgerTab === "BY_CLASS"} onClick={() => setActiveLedgerTab("BY_CLASS")}
+                className={"rounded-lg px-3 py-1.5 text-[11px] font-bold transition " + (activeLedgerTab === "BY_CLASS" ? "bg-white text-[#0b3d9b] shadow-sm" : "text-blue-100 hover:bg-white/10")}>By class ({rawClasses.length})</button>
             </div>
           </div>
 
+          <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/80 px-5 py-3 dark:border-slate-800 dark:bg-slate-900 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by stream">
+              {[
+                { id: "ALL", label: "All streams" },
+                { id: "ACADEMY", label: "Academy classes" },
+                { id: "LEAGUES", label: "Tournaments" },
+                { id: "CAMPS", label: "Holiday camps" },
+                { id: "STORE", label: "Store orders" },
+              ].map((stream) => (
+                <button key={stream.id} type="button" aria-pressed={selectedStream === stream.id} onClick={() => setSelectedStream(stream.id)}
+                  className={"rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition " + (selectedStream === stream.id
+                    ? "border-[#1257ed] bg-[#1257ed] text-white shadow-sm"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-[#1257ed] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300")}>
+                  {stream.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="sr-only" htmlFor="earnings-payment-status">Filter by payment status</label>
+              <select id="earnings-payment-status" value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}
+                className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-bold text-slate-700 outline-none focus:border-[#1257ed] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <option value="ALL">All statuses</option>
+                <option value="PAID">Paid in full</option>
+                <option value="HANDSHAKE">Handshake / Scholarship</option>
+                <option value="TRIAL">Free trial</option>
+                <option value="PENDING">Pending approval</option>
+                <option value="UNPAID">Unpaid invoices</option>
+                <option value="PARTIAL">Partially paid</option>
+              </select>
+              <div className="relative min-w-[210px] flex-1 lg:w-[230px] lg:flex-none">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <input aria-label="Search financial ledger" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search player, parent, class..." className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 text-[11px] text-slate-900 outline-none focus:border-[#1257ed] dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+                {searchQuery && <button type="button" onClick={() => setSearchQuery("")} aria-label="Clear search"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-700">×</button>}
+              </div>
+            </div>
+          </div>
           {/* TAB 1: ALL PLAYERS MASTER FINANCIAL LEDGER */}
           {activeLedgerTab === "ALL_PLAYERS" && (
             <div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
+                <table className="w-full min-w-[1080px] border-collapse text-left text-xs">
                   <thead>
                     <tr className="bg-[#031549] text-white text-[10px] font-bold uppercase tracking-wider">
                       <th className="py-3 px-4">Player & Parent</th>
@@ -1276,25 +803,25 @@ export default function TermEarningsPage() {
 
               {/* Pagination Controls */}
               {totalPages > 1 && (
-                <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 p-4 text-xs dark:border-slate-800">
                   <div className="text-slate-400">
                     Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredRecords.length)} of {filteredRecords.length} records
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
+                    <button type="button"
                       disabled={page === 1}
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-800 disabled:opacity-50 cursor-pointer font-bold"
+                      className="cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-bold transition hover:border-blue-300 hover:text-[#1257ed] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800"
                     >
                       Previous
                     </button>
                     <span className="font-bold text-slate-700 dark:text-slate-300">
                       Page {page} of {totalPages}
                     </span>
-                    <button
+                    <button type="button"
                       disabled={page === totalPages}
                       onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-800 disabled:opacity-50 cursor-pointer font-bold"
+                      className="cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-bold transition hover:border-blue-300 hover:text-[#1257ed] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800"
                     >
                       Next
                     </button>
@@ -1342,12 +869,12 @@ export default function TermEarningsPage() {
                     return (
                       <div
                         key={cId}
-                        className="border border-slate-200 dark:border-slate-800 rounded overflow-hidden"
+                        className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
                       >
                         {/* Class Header Banner */}
                         <div
                           onClick={() => toggleClassExpand(cId)}
-                          className="p-4 bg-slate-50 dark:bg-slate-900/60 hover:bg-slate-100/60 cursor-pointer flex items-center justify-between transition-colors"
+                          className="flex cursor-pointer items-center justify-between gap-3 bg-slate-50 p-4 transition-colors hover:bg-blue-50/70 dark:bg-slate-900/60 dark:hover:bg-slate-800"
                         >
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded bg-[#0047FF]/10 text-[#0047FF] flex items-center justify-center font-bold">
@@ -1455,7 +982,7 @@ export default function TermEarningsPage() {
               </div>
             </div>
           )}
-        </div>
+        </section>
       </div>
     </>
   );

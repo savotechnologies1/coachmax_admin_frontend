@@ -24,5 +24,3 @@ lint-result.json
 /dist/
 !.env.example
 config.bat
-.env
-.env.*

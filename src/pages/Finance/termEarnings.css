@@ -1,0 +1,43 @@
+@keyframes finance-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes finance-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.finance-enter {
+  animation: finance-rise 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.finance-kpi-card::after {
+  content: "";
+  position: absolute;
+  right: -30px;
+  top: -36px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.42);
+  filter: blur(4px);
+  pointer-events: none;
+}
+
+.finance-progress {
+  animation: finance-grow 850ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .finance-enter,
+  .finance-progress {
+    animation: none;
+  }
+}
