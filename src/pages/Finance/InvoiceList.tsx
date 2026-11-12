@@ -4,7 +4,7 @@ import { useNavigate } from "react-router";
 import PageMeta from "../../components/common/PageMeta";
 import PageBreadcrumb from "../../components/common/PageBreadcrumb";
 import Pagination from "../../components/common/Pagination";
-import { useInvoices, useUpdateInvoice } from "../../hooks/useInvoices";
+import { useInvoices, useUpdateInvoice, useRecordInvoicePayment } from "../../hooks/useInvoices";
 import { useSidebarBadges } from "../../hooks/useSidebarBadges";
 import { useCoachAccess } from "../../hooks/useCoachAccess";
 
@@ -27,6 +27,7 @@ export default function InvoiceList() {
 
   const { data, isLoading, isError } = useInvoices(search, paymentStatus, page, limit);
   const updateInvoiceMutation = useUpdateInvoice();
+  const recordPaymentMutation = useRecordInvoicePayment();
 
   const invoices: any[] = Array.isArray(data?.data)
     ? data.data
@@ -47,7 +48,11 @@ export default function InvoiceList() {
   const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>, invoiceId: string) => {
     e.stopPropagation();
     const newStatus = e.target.value;
-    updateInvoiceMutation.mutate({ id: invoiceId, payload: { paymentStatus: newStatus } });
+    if (newStatus === "PAID") {
+      recordPaymentMutation.mutate(invoiceId);
+    } else {
+      updateInvoiceMutation.mutate({ id: invoiceId, payload: { paymentStatus: newStatus } });
+    }
   };
 
   return (
@@ -109,7 +114,8 @@ export default function InvoiceList() {
                 ) : (
                   invoices.map((inv: any) => {
                     const st = STATUS_STYLES[inv.paymentStatus] || STATUS_STYLES["UNPAID"];
-                    const isPending = updateInvoiceMutation.isPending && (updateInvoiceMutation.variables as any)?.id === inv._id;
+                    const isPending = (updateInvoiceMutation.isPending && (updateInvoiceMutation.variables as any)?.id === inv._id)
+                      || (recordPaymentMutation.isPending && recordPaymentMutation.variables === inv._id);
                     return (
                       <tr
                         key={inv._id}

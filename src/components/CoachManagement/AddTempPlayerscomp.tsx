@@ -242,7 +242,9 @@ export default function AddTempPlayerscomp() {
         profileImage: profileImageFile || undefined,
       };
       const result = await addTemporaryPlayer(payload);
-      toast.success(result?.message || (result?.emailSent ? "Player added. Parent access email sent." : "Player added. No parent access email was sent."));
+      const message = result?.message || (result?.emailSent ? "Player added. Parent access email sent." : "Player added, but the parent access email was not sent.");
+      if (result?.emailSent || ["SENT", "PENDING", "SENDING"].includes(result?.emailDeliveryStatus)) toast.success(message);
+      else toast.error(message);
       handleClearForm();
     } catch (error: any) {
       console.error("Failed to add temporary player:", error);

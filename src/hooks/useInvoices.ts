@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { generateInvoice, getInvoices, getInvoiceDetails, updateInvoice, InvoicePayload } from "../api/invoiceApi";
+import { generateInvoice, getInvoices, getInvoiceDetails, getInvoiceAuditLogs, updateInvoice, recordInvoicePayment, InvoicePayload } from "../api/invoiceApi";
 import toast from "react-hot-toast";
 
 export const useGenerateInvoice = () => {
@@ -38,18 +38,43 @@ export const useInvoiceDetails = (id: string) => {
   });
 };
 
+export const useInvoiceAuditLogs = (id: string) => {
+  return useQuery({
+    queryKey: ["invoiceAuditLogs", id],
+    queryFn: () => getInvoiceAuditLogs(id),
+    enabled: !!id,
+  });
+};
+
 export const useUpdateInvoice = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: Partial<{ paymentStatus: string; status: string; dueDate: string; notes: string }> }) =>
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<{ paymentStatus: string; status: string; dueDate: string; notes: string; totalAmount: number; adjustmentReason: string }> }) =>
       updateInvoice(id, payload),
     onSuccess: (data: any, variables) => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["invoice", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["invoiceAuditLogs", variables.id] });
       toast.success(data?.message || "Invoice updated successfully");
     },
     onError: (error: any) => {
       toast.error(error?.response?.data?.message || error.message || "Failed to update invoice");
+    },
+  });
+};
+
+export const useRecordInvoicePayment = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => recordInvoicePayment(id),
+    onSuccess: (data: any, id) => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoice", id] });
+      queryClient.invalidateQueries({ queryKey: ["players"] });
+      toast.success(data?.message || "Payment recorded successfully");
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.message || error.message || "Failed to record payment");
     },
   });
 };

@@ -1,10 +1,11 @@
 import { formatDateOnly, formatTimestampDate, formatDateTime } from "../../utils/dateTime";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import PageMeta from "../../components/common/PageMeta";
 import PageBreadcrumb from "../../components/common/PageBreadcrumb";
-import { useInvoiceDetails } from "../../hooks/useInvoices";
+import { useInvoiceAuditLogs, useInvoiceDetails, useUpdateInvoice } from "../../hooks/useInvoices";
 import { useSidebarBadges } from "../../hooks/useSidebarBadges";
+import { useCoachAccess } from "../../hooks/useCoachAccess";
 
 const formatDate = (value: string) => formatDateOnly(value) || "N/A";
 
@@ -13,7 +14,13 @@ const formatDate = (value: string) => formatDateOnly(value) || "N/A";
 export default function InvoiceDetails() {
   const { id } = useParams();
   const { data, isLoading, isError } = useInvoiceDetails(id || "");
+  const { data: auditData } = useInvoiceAuditLogs(id || "");
+  const updateInvoiceMutation = useUpdateInvoice();
+  const { can } = useCoachAccess();
   const { markItemAsRead } = useSidebarBadges();
+  const [isAdjusting, setIsAdjusting] = useState(false);
+  const [adjustedTotal, setAdjustedTotal] = useState("");
+  const [adjustmentReason, setAdjustmentReason] = useState("");
 
   useEffect(() => {
     if (id) {
@@ -30,6 +37,27 @@ export default function InvoiceDetails() {
   }
 
   const inv = data.data;
+  const invoiceTotal = Number(inv.totalAmount ?? inv.amount ?? 0);
+  const adjustmentAmount = Number(inv.adminAdjustmentAmount || 0);
+  const adjustmentHistory = (auditData?.data || []).filter((entry: any) => entry.action === "INVOICE_AMOUNT_ADJUSTED");
+  const canAdjustAmount = can("invoices", "edit") && inv.status === "ACTIVE" && inv.paymentStatus !== "PAID" && inv.paymentStatus !== "PAYMENT_PENDING";
+
+  const openAdjustmentForm = () => {
+    setAdjustedTotal(invoiceTotal.toFixed(2));
+    setAdjustmentReason("");
+    setIsAdjusting(true);
+  };
+
+  const saveAmountAdjustment = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!id) return;
+    updateInvoiceMutation.mutate({
+      id,
+      payload: { totalAmount: Number(adjustedTotal), adjustmentReason: adjustmentReason.trim() },
+    }, {
+      onSuccess: () => setIsAdjusting(false),
+    });
+  };
 
   return (
     <>
@@ -99,6 +127,7 @@ export default function InvoiceDetails() {
                   <span className="font-semibold text-gray-800 dark:text-white/90">
                     {inv.paymentMethod === "COD" ? "Cash on Delivery (COD)" :
                       inv.paymentMethod === "ONLINE" ? "Online Payment" :
+                        inv.paymentMethod === "ADMIN_MANUAL" ? "Admin recorded receipt" :
                         inv.paymentMethod || "N/A"}
                   </span>
                 </div>
@@ -170,18 +199,104 @@ export default function InvoiceDetails() {
                 <span className="text-gray-500">Discount</span>
                 <span className="font-medium text-red-500">-${inv.discount || 0}</span>
               </div>
+              {adjustmentAmount !== 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Admin adjustment / discount</span>
+                  <span className={`font-medium ${adjustmentAmount < 0 ? "text-red-500" : "text-emerald-600"}`}>
+                    {adjustmentAmount < 0 ? "-" : "+"}${Math.abs(adjustmentAmount).toFixed(2)}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between text-lg font-bold border-t border-gray-100 dark:border-gray-700 pt-3">
                 <span className="text-gray-900 dark:text-white">Total</span>
-                <span className="text-[#0047FF]">${inv.totalAmount || inv.amount || 0}</span>
+                <span className="text-[#0047FF]">${invoiceTotal.toFixed(2)}</span>
               </div>
+              {canAdjustAmount && !isAdjusting && (
+                <button
+                  type="button"
+                  onClick={openAdjustmentForm}
+                  className="mt-2 w-full border border-[#0047FF] px-4 py-2 text-sm font-semibold text-[#0047FF] hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                >
+                  Edit invoice amount
+                </button>
+              )}
             </div>
           </div>
+
+          {isAdjusting && (
+            <form onSubmit={saveAmountAdjustment} className="mb-8 border border-blue-200 bg-blue-50/50 p-5 dark:border-blue-900/50 dark:bg-blue-950/10">
+              <h4 className="mb-1 text-sm font-bold text-gray-900 dark:text-white">Adjust invoice amount</h4>
+              <p className="mb-4 text-xs text-gray-600 dark:text-gray-400">
+                Current total: ${invoiceTotal.toFixed(2)}. The admin reason is saved to this invoice’s audit history.
+              </p>
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  New total
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    value={adjustedTotal}
+                    onChange={(event) => setAdjustedTotal(event.target.value)}
+                    className="mt-1 w-full border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Admin note (required)
+                  <textarea
+                    required
+                    minLength={8}
+                    maxLength={500}
+                    value={adjustmentReason}
+                    onChange={(event) => setAdjustmentReason(event.target.value)}
+                    placeholder="Joined halfway through the term — 50% discount"
+                    rows={3}
+                    className="mt-1 w-full resize-y border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  />
+                </label>
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" onClick={() => setIsAdjusting(false)} className="border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 dark:border-gray-700 dark:text-gray-300">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateInvoiceMutation.isPending || !adjustmentReason.trim() || Number(adjustedTotal) === invoiceTotal}
+                  className="bg-[#0047FF] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {updateInvoiceMutation.isPending ? "Saving…" : "Save amount and note"}
+                </button>
+              </div>
+            </form>
+          )}
 
           {/* Notes */}
           <div className="border-t border-gray-100 dark:border-gray-700 pt-8">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Notes</p>
             <p className="text-sm text-gray-600 dark:text-gray-400">{inv.notes || inv.description || "No additional notes."}</p>
           </div>
+
+          {adjustmentHistory.length > 0 && (
+            <div className="mt-6 border-t border-gray-100 pt-6 dark:border-gray-700">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Admin amount adjustment history</p>
+              <div className="space-y-3">
+                {adjustmentHistory.map((entry: any) => (
+                  <div key={entry._id} className="border border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
+                    <div className="flex flex-wrap justify-between gap-2 text-sm">
+                      <span className="font-semibold text-gray-900 dark:text-white">
+                        ${Number(entry.oldValue?.totalAmount || 0).toFixed(2)} → ${Number(entry.newValue?.totalAmount || 0).toFixed(2)}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {entry.user?.name || entry.actorName || entry.user?.email || "Admin"} · {formatDateTime(entry.createdAt)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{entry.newValue?.reason || "No reason recorded."}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>

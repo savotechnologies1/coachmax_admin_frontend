@@ -223,7 +223,7 @@ export default function Transactions() {
                         <div className="font-semibold text-slate-500">{txn.parent?.phone}</div>
                       </td>
                       <td className="py-4 px-3">
-                        <div className="font-bold text-slate-800 dark:text-slate-200">${txn.amount || 0} <span className="font-semibold text-slate-500 text-xs">({txn.paymentMethod || "UNKNOWN"})</span></div>
+                        <div className="font-bold text-slate-800 dark:text-slate-200">${txn.amount || 0} <span className="font-semibold text-slate-500 text-xs">({txn.paymentMethod === "ADMIN_MANUAL" ? "ADMIN RECORDED" : txn.paymentMethod || "UNKNOWN"})</span></div>
                         {txn.remarks && <div className="text-xs text-slate-500 max-w-[200px] truncate" title={txn.remarks}>{txn.remarks}</div>}
                       </td>
                       <td className="py-4 px-3 font-semibold text-slate-500">{formatDate(txn.createdAt)}</td>

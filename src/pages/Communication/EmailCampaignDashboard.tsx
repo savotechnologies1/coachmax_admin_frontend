@@ -12,6 +12,7 @@ import {
   getEmailCampaigns,
   previewEmailCampaign,
   retryFailedEmailRecipients,
+  sendTestEmail,
 } from "../../api/emailCampaignApi";
 
 type AudienceType = "CLASS" | "EVENT" | "TOURNAMENT";
@@ -155,6 +156,9 @@ export default function EmailCampaignDashboard() {
   const [loadingAudiences, setLoadingAudiences] = useState(true);
   const [loadingPlayers, setLoadingPlayers] = useState(false);
   const [sending, setSending] = useState(false);
+  const [testEmailOpen, setTestEmailOpen] = useState(false);
+  const [testEmailAddress, setTestEmailAddress] = useState("");
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeSubject, setComposeSubject] = useState("");
@@ -393,6 +397,22 @@ export default function EmailCampaignDashboard() {
     }
   };
 
+  const sendTestEmailMessage = async (event: FormEvent) => {
+    event.preventDefault();
+    const email = testEmailAddress.trim();
+    if (!email) return toast.error("Enter an email address for the test message.");
+    setSendingTestEmail(true);
+    try {
+      const response = await sendTestEmail(email);
+      toast.success(response?.message || "Test email accepted. Check the inbox and spam folder.");
+      setTestEmailOpen(false);
+    } catch (error) {
+      toast.error(apiMessage(error, "Could not send the test email."));
+    } finally {
+      setSendingTestEmail(false);
+    }
+  };
+
   const retryFailed = async () => {
     if (!selectedCampaign) return;
     try {
@@ -413,7 +433,10 @@ export default function EmailCampaignDashboard() {
       <PageMeta title="Bulk Email | CoachMax" description="Select players, send private group emails, and track delivery." />
       <div className="w-full space-y-5 p-4 text-slate-900 sm:p-6">
         <PageBreadcrumb pageTitle="Email Center" subtitle="Email selected players across classes, events, and tournaments. Every recipient gets a private message." items={[{ name: "Communication", path: "/communication" }]}>
-          {activeTab === "recipients" && <button onClick={openComposer} disabled={!audienceId || selectedCount < 1} className="inline-flex h-10 items-center gap-2 bg-[#064bff] px-4 text-sm font-semibold text-white hover:bg-[#003bd1] disabled:cursor-not-allowed disabled:bg-slate-300"><Send size={16} /> Send bulk email{selectedCount ? ` (${selectedCount})` : ""}</button>}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setTestEmailOpen(true)} className="inline-flex h-10 items-center gap-2 border border-[#064bff] bg-white px-4 text-sm font-semibold text-[#064bff] hover:bg-blue-50"><Mail size={16} /> Test email</button>
+            {activeTab === "recipients" && <button onClick={openComposer} disabled={!audienceId || selectedCount < 1} className="inline-flex h-10 items-center gap-2 bg-[#064bff] px-4 text-sm font-semibold text-white hover:bg-[#003bd1] disabled:cursor-not-allowed disabled:bg-slate-300"><Send size={16} /> Send bulk email{selectedCount ? ` (${selectedCount})` : ""}</button>}
+          </div>
         </PageBreadcrumb>
 
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -485,6 +508,7 @@ export default function EmailCampaignDashboard() {
         <label className="block text-xs font-semibold text-slate-700">Message<textarea value={composeMessage} onChange={(event) => setComposeMessage(event.target.value)} required maxLength={12000} rows={9} className="mt-1 w-full resize-y border border-slate-300 p-3 text-sm font-normal leading-6 outline-none focus:border-[#064bff]" placeholder="Write your message…" /><span className="mt-1 block text-right font-normal text-slate-400">{composeMessage.length}/12,000</span></label>
         <div className="flex items-start gap-2 border border-blue-100 bg-blue-50 p-3 text-xs text-slate-600"><Mail size={15} className="mt-0.5 shrink-0 text-[#064bff]" /><p>Each parent/guardian receives a separate email. Other players’ and families’ addresses are never shown.</p></div>
       </div><footer className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 p-4"><button type="button" onClick={() => setComposeOpen(false)} className="h-10 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">Cancel</button><button type="submit" disabled={sending || !composeSubject.trim() || !composeMessage.trim()} className="inline-flex h-10 items-center gap-2 bg-[#064bff] px-5 text-sm font-semibold text-white disabled:bg-slate-300"><Send size={15} />{sending ? "Adding to queue…" : `Queue ${preview?.deliverableRecipients || 0} emails`}</button></footer></form></div>}
+      {testEmailOpen && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-3 sm:p-6"><form onSubmit={sendTestEmailMessage} className="w-full max-w-lg border border-slate-200 bg-white shadow-2xl"><header className="flex items-start justify-between bg-[#07194f] px-5 py-4 text-white"><div><div className="flex items-center gap-2 text-lg font-bold"><Mail size={19} />Send a test email</div><p className="mt-1 text-xs text-blue-100">Check the configured email service before sending a campaign.</p></div><button type="button" onClick={() => setTestEmailOpen(false)} className="p-1 text-white/80 hover:text-white"><X size={20} /></button></header><div className="space-y-3 p-5"><label className="block text-xs font-semibold text-slate-700">Send test to<input type="email" required maxLength={254} value={testEmailAddress} onChange={(event) => setTestEmailAddress(event.target.value)} placeholder="you@example.com" className="mt-1 h-10 w-full border border-slate-300 px-3 text-sm font-normal outline-none focus:border-[#064bff]" /></label><p className="border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-slate-600">This sends one test message immediately to the address above. It does not contact players or parents. After sending, check the inbox and spam folder.</p></div><footer className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 p-4"><button type="button" onClick={() => setTestEmailOpen(false)} className="h-10 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">Cancel</button><button type="submit" disabled={sendingTestEmail || !testEmailAddress.trim()} className="inline-flex h-10 items-center gap-2 bg-[#064bff] px-5 text-sm font-semibold text-white disabled:bg-slate-300"><Send size={15} />{sendingTestEmail ? "Sending test…" : "Send test"}</button></footer></form></div>}
     </>
   );
 }

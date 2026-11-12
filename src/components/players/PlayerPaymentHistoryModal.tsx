@@ -1,7 +1,12 @@
 import React, { useState, useMemo } from "react";
 import { Player } from "../../types/player";
-import { useAdminPlayerDetails, useUpdatePlayerPaymentStatus } from "../../hooks/usePlayers";
+import { useAdminPlayerDetails } from "../../hooks/usePlayers";
 import { useTerms } from "../../hooks/useTerms";
+import { updatePlayerPaymentStatus } from "../../api/players";
+import { updateEventRegistrationPaymentStatus } from "../../api/eventApi";
+import { updateOrderStatus } from "../../api/orderApi";
+import { recordInvoicePayment, updateInvoice } from "../../api/invoiceApi";
+import { useQueryClient } from "@tanstack/react-query";
 import { StatusBadge, StatusDot, getStatusConfig } from "../common/StatusColorCode";
 import { 
   X, 
@@ -44,7 +49,7 @@ export default function PlayerPaymentHistoryModal({
   const playerId = player?._id || "";
   const { data: detailsRes, isLoading, refetch } = useAdminPlayerDetails(playerId);
   const { terms = [] } = useTerms({ isEvent: "all" });
-  const updatePaymentStatusMutation = useUpdatePlayerPaymentStatus();
+  const queryClient = useQueryClient();
 
   const [selectedTerm, setSelectedTerm] = useState<string>(initialTermId || "All");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("All");
@@ -136,25 +141,122 @@ export default function PlayerPaymentHistoryModal({
 
   if (!isOpen || !player) return null;
 
+  const getStatusControlValue = (item: any) => {
+    const status = String(item.paymentStatus || "UNPAID").toUpperCase();
+    if (item.type === "STORE_ORDER" || item.type === "INVOICE") {
+      return status === "PAID" ? "PAID" : "UNPAID";
+    }
+    if (status === "PAYMENT_PENDING") return "UNPAID";
+    return status;
+  };
+
+  const supportsHistoryStatus = (item: any, newStatus: string) => {
+    if (item.type === "STORE_ORDER" || item.type === "INVOICE") {
+      return ["PAID", "UNPAID"].includes(newStatus);
+    }
+    return true;
+  };
+
+  const getStatusOptions = (item: any) =>
+    item.type === "STORE_ORDER" || item.type === "INVOICE"
+      ? VALID_STATUSES.filter((status) => status.value === "PAID" || status.value === "UNPAID")
+      : VALID_STATUSES;
+
+  const historyStatusIsUnchanged = (item: any, newStatus: string) => {
+    const currentStatus = String(item.paymentStatus || "UNPAID").toUpperCase();
+    if (item.type === "STORE_ORDER") {
+      const persistedStatus = newStatus === "PAID" ? "PAID" : "PENDING";
+      return currentStatus === persistedStatus;
+    }
+    if (item.type === "INVOICE") {
+      const persistedStatus = newStatus === "PAID" ? "PAID" : "UNPAID";
+      return currentStatus === persistedStatus;
+    }
+    const comparableStatus = (status: string) => {
+      if (status === "APPROVED" || status === "ACTIVE") return "PAID";
+      if (status === "OVERDUE") return "OVER_DUE";
+      return status;
+    };
+    return comparableStatus(currentStatus) === comparableStatus(String(newStatus).toUpperCase());
+  };
+
+  const persistHistoryStatus = async (item: any, newStatus: string) => {
+    const status = String(newStatus).toUpperCase();
+    if (!supportsHistoryStatus(item, status)) {
+      throw new Error(`${item.type === "STORE_ORDER" ? "Store orders" : "Invoices"} support PAID or UNPAID status only.`);
+    }
+
+    if (item.type === "CLASS") {
+      if (!item.classId) throw new Error("Class record is missing its class ID.");
+      return updatePlayerPaymentStatus(playerId, { paymentStatus: status, classId: item.classId });
+    }
+    if (item.type === "TEAM") {
+      if (!item.teamId) throw new Error("Team record is missing its team ID.");
+      return updatePlayerPaymentStatus(playerId, { paymentStatus: status, teamId: item.teamId });
+    }
+    if (item.type === "LEAGUE") {
+      if (!item.teamId || !item.leagueId) throw new Error("League record is missing its team or league ID.");
+      return updatePlayerPaymentStatus(playerId, {
+        paymentStatus: status,
+        teamId: item.teamId,
+        leagueId: item.leagueId,
+      });
+    }
+    if (item.type === "HOLIDAY_PROGRAM" || item.type === "EVENT") {
+      if (!item.registrationId) throw new Error("Event record is missing its registration ID.");
+      return updateEventRegistrationPaymentStatus(item.registrationId, status, {
+        eventId: item.eventId,
+        playerId,
+      });
+    }
+    if (item.type === "STORE_ORDER") {
+      if (!item.orderId) throw new Error("Store order is missing its order ID.");
+      return updateOrderStatus(item.orderId, { paymentStatus: status === "PAID" ? "PAID" : "PENDING" });
+    }
+    if (item.type === "INVOICE") {
+      const invoiceId = item.invoiceId || String(item.id || "").replace(/^inv-/, "");
+      if (!invoiceId) throw new Error("Invoice record is missing its invoice ID.");
+      return status === "PAID"
+        ? recordInvoicePayment(invoiceId)
+        : updateInvoice(invoiceId, { paymentStatus: "UNPAID" });
+    }
+
+    throw new Error(`Unsupported payment item type: ${item.type || "unknown"}.`);
+  };
+
+  const refreshPaymentViews = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["players"] }),
+      queryClient.invalidateQueries({ queryKey: ["adminPlayerDetails", playerId] }),
+      queryClient.invalidateQueries({ queryKey: ["playerProfile", playerId] }),
+      queryClient.invalidateQueries({ queryKey: ["playerStats"] }),
+      queryClient.invalidateQueries({ queryKey: ["teamFullTable"] }),
+      queryClient.invalidateQueries({ queryKey: ["team"] }),
+      queryClient.invalidateQueries({ queryKey: ["teams"] }),
+      queryClient.invalidateQueries({ queryKey: ["league"] }),
+      queryClient.invalidateQueries({ queryKey: ["leagues"] }),
+      queryClient.invalidateQueries({ queryKey: ["leagueTeams"] }),
+      queryClient.invalidateQueries({ queryKey: ["leagueLadder"] }),
+      queryClient.invalidateQueries({ queryKey: ["leagueStats"] }),
+      queryClient.invalidateQueries({ queryKey: ["leagueGraphs"] }),
+      queryClient.invalidateQueries({ queryKey: ["events"] }),
+      queryClient.invalidateQueries({ queryKey: ["orders"] }),
+      queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+    ]);
+    await refetch();
+  };
+
   const handleUpdateItemStatus = async (item: any, newStatus: string) => {
     if (!playerId) return;
+    if (historyStatusIsUnchanged(item, newStatus)) return;
+    if (String(newStatus).toUpperCase() === "PAID" && !window.confirm(`Confirm that payment has actually been received for ${item.name || "this item"}? The system will record or approve one payment transaction and update its invoice.`)) return;
     setUpdatingItemId(item.id);
     try {
-      const payload: any = { paymentStatus: newStatus };
-      if (item.type === "CLASS" && item.classId) {
-        payload.classId = item.classId;
-      } else if (item.type === "TEAM" && item.teamId) {
-        payload.teamId = item.teamId;
-      }
-
-      await updatePaymentStatusMutation.mutateAsync({
-        userId: playerId,
-        payload,
-      });
-
-      refetch();
+      await persistHistoryStatus(item, newStatus);
+      await refreshPaymentViews();
     } catch (err: any) {
       console.error(err);
+      toast.error(err?.response?.data?.message || err.message || "Failed to update payment status");
     } finally {
       setUpdatingItemId(null);
     }
@@ -162,18 +264,62 @@ export default function PlayerPaymentHistoryModal({
 
   const handleUpdateOverallStatus = async (newStatus: string) => {
     if (!playerId) return;
-    if (!window.confirm(`Update overall player payment status to ${newStatus}? This will apply to all classes.`)) {
+    const status = String(newStatus).toUpperCase();
+    const alreadyUpdated = filteredHistory.filter((item) => historyStatusIsUnchanged(item, status)).length;
+    const unsupported = filteredHistory.filter((item) => !supportsHistoryStatus(item, status)).length;
+    const itemsToUpdate = filteredHistory.filter((item) =>
+      supportsHistoryStatus(item, status) && !historyStatusIsUnchanged(item, status)
+    );
+
+    if (itemsToUpdate.length === 0) {
+      if (unsupported > 0) {
+        toast.error("This status is not supported by the filtered invoice or store order records.");
+      } else {
+        toast("All filtered items already have this status.");
+      }
+      return;
+    }
+
+    const termLabel = selectedTerm === "All"
+      ? "all terms"
+      : terms.find((term) => term._id === selectedTerm)?.name || "the selected term";
+    const confirmation = status === "PAID"
+      ? `Confirm that payment has actually been received for each of the ${itemsToUpdate.length} filtered item(s) in ${termLabel}? The system will record or approve one payment transaction per billed item. Items already matching will be skipped.`
+      : `Update ${itemsToUpdate.length} filtered item(s) in ${termLabel} to ${status}? Items already matching will be skipped.`;
+    if (!window.confirm(confirmation)) {
       return;
     }
     setUpdatingItemId("all");
     try {
-      await updatePaymentStatusMutation.mutateAsync({
-        userId: playerId,
-        payload: { paymentStatus: newStatus },
-      });
-      refetch();
+      let updated = 0;
+      let failed = 0;
+      let firstFailure = "";
+      for (const item of itemsToUpdate) {
+        try {
+          await persistHistoryStatus(item, status);
+          updated += 1;
+        } catch (error: any) {
+          failed += 1;
+          firstFailure ||= error?.response?.data?.message || error.message || "A payment item could not be updated.";
+        }
+      }
+      await refreshPaymentViews();
+
+      if (updated > 0) {
+        const details = [
+          `${updated} item(s) updated`,
+          alreadyUpdated ? `${alreadyUpdated} already matching` : "",
+          unsupported ? `${unsupported} unsupported item(s) skipped` : "",
+          failed ? `${failed} item(s) could not be updated${firstFailure ? ` (${firstFailure})` : ""}` : "",
+        ].filter(Boolean).join("; ");
+        if (failed || unsupported) toast.error(details);
+        else toast.success(details);
+      } else {
+        toast.error(`${failed} item(s) could not be updated${firstFailure ? `: ${firstFailure}` : "."}`);
+      }
     } catch (err: any) {
       console.error(err);
+      toast.error(err?.response?.data?.message || err.message || "Failed to update payment statuses");
     } finally {
       setUpdatingItemId(null);
     }
@@ -394,8 +540,9 @@ export default function PlayerPaymentHistoryModal({
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                   {filteredHistory.map((item, idx) => {
-                    const isRowUpdating = updatingItemId === item.id;
+                    const isRowUpdating = updatingItemId === item.id || updatingItemId === "all";
                     const st = (item.paymentStatus || "UNPAID").toUpperCase();
+                    const statusControlValue = getStatusControlValue(item);
                     const config = getStatusConfig(st);
 
                     return (
@@ -443,8 +590,9 @@ export default function PlayerPaymentHistoryModal({
                         <td className="py-3 px-3 text-center">
                           <div className="inline-flex items-center gap-1.5">
                             <select
-                              value={st}
-                              disabled={isRowUpdating}
+                              value={statusControlValue}
+                              disabled={isRowUpdating || st === "PAYMENT_PENDING"}
+                              title={st === "PAYMENT_PENDING" ? "Resolve the pending transaction in Finance before changing this status." : undefined}
                               onChange={(e) => handleUpdateItemStatus(item, e.target.value)}
                               className={`h-7 px-2 text-[10px] font-bold uppercase rounded-none border transition-all cursor-pointer ${
                                 st === "PAID"
@@ -454,7 +602,7 @@ export default function PlayerPaymentHistoryModal({
                                   : "bg-slate-50 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300"
                               } focus:outline-hidden`}
                             >
-                              {VALID_STATUSES.map((s) => (
+                              {getStatusOptions(item).map((s) => (
                                 <option key={s.value} value={s.value}>
                                   {s.label}
                                 </option>
@@ -477,7 +625,7 @@ export default function PlayerPaymentHistoryModal({
         {/* Footer */}
         <div className="p-3.5 px-5 bg-slate-50/80 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="text-[11px] text-slate-400">
-            Clicking a status updates it in real-time in the database, recalculating received & pending amounts.
+            Marking PAID records or approves one payment transaction and syncs the invoice, enrollment, and received balance.
           </div>
           <button
             onClick={onClose}
