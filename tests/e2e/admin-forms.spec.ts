@@ -150,7 +150,7 @@ test.describe("CoachMax form design and submission acceptance", () => {
     expect(state.externalRequests, "external requests remain isolated").toEqual([]);
   });
 
-  test("team and league forms validate, crop logos, and submit the selected term year", async ({ page }) => {
+  test("team and tournament forms validate, crop logos, and submit the selected term year", async ({ page }) => {
     await page.goto("/teams");
     await page.getByRole("button", { name: "Add Team", exact: true }).click();
     await page.getByRole("button", { name: "Save Team", exact: true }).click();
@@ -172,9 +172,9 @@ test.describe("CoachMax form design and submission acceptance", () => {
     expect(uploadedPngDimensions(teamRequest, "teamLogo")).toEqual({ width: 512, height: 512 });
 
     await page.goto("/leagues");
-    await page.getByRole("button", { name: "Add League", exact: true }).click();
+    await page.getByRole("button", { name: "Add Tournament", exact: true }).click();
     await page.getByRole("button", { name: /Next: Fixtures & Rules/ }).click();
-    await expect(page.locator("#league-name-error")).toHaveText("League name is required.");
+    await expect(page.locator("#league-name-error")).toHaveText("Tournament name is required.");
     const form = page.locator("[data-coachmax-form]");
     await form.locator("input").first().fill("U11 Autumn League");
     await form.locator("select").nth(1).selectOption(term._id);
@@ -183,7 +183,7 @@ test.describe("CoachMax form design and submission acceptance", () => {
     await page.getByRole("button", { name: "Use this crop", exact: true }).click();
     await page.getByRole("button", { name: /Next: Fixtures & Rules/ }).click();
     await page.getByRole("button", { name: /Next: Select Teams/ }).click();
-    await page.getByRole("button", { name: "Create League", exact: true }).click();
+    await page.getByRole("button", { name: "Create Tournament", exact: true }).click();
     await expect.poll(() => state.submissions.filter((item) => item.path === "/api/admin/leagues" && item.method === "POST").length).toBe(1);
     const leagueRequest = state.submissions.find((item) => item.path === "/api/admin/leagues" && item.method === "POST")!;
     expect(leagueRequest.body.toString("latin1")).toContain('name="year"\r\n\r\n2026');

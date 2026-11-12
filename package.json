@@ -64,6 +64,9 @@
     "vite-plugin-svgr": "^4.3.0"
   },
   "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.8"
+    },
     "react-helmet-async": {
       "react": "^16.8.0 || ^17 || ^18 || ^19"
     },
