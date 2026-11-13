@@ -258,6 +258,7 @@ export default function PlayersManagement() {
             player={selectedPlayer} 
             onClose={() => setSelectedPlayer(null)} 
             onEditPlayer={access.can("players", "edit") ? setPlayerToEdit : undefined}
+            contextYear={Number(yearFilter) || undefined}
           />
         )}
       </div>

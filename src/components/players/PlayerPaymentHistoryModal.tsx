@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { Player } from "../../types/player";
 import { useAdminPlayerDetails } from "../../hooks/usePlayers";
 import { useTerms } from "../../hooks/useTerms";
@@ -21,12 +21,15 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getMediaUrl, getMediaFallback } from "../../utils/media";
+import { toDateOnly } from "../../utils/dateTime";
+import { getCurrentYearString } from "../../hooks/useCurrentTerm";
 
 interface PlayerPaymentHistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   player: Player | null;
   initialTermId?: string;
+  initialYear?: string | number;
 }
 
 const VALID_STATUSES = [
@@ -45,6 +48,7 @@ export default function PlayerPaymentHistoryModal({
   onClose,
   player,
   initialTermId = "All",
+  initialYear = getCurrentYearString(),
 }: PlayerPaymentHistoryModalProps) {
   const playerId = player?._id || "";
   const { data: detailsRes, isLoading, refetch } = useAdminPlayerDetails(playerId);
@@ -52,6 +56,7 @@ export default function PlayerPaymentHistoryModal({
   const queryClient = useQueryClient();
 
   const [selectedTerm, setSelectedTerm] = useState<string>(initialTermId || "All");
+  const [selectedYear, setSelectedYear] = useState<string>(String(initialYear || getCurrentYearString()));
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("All");
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
 
@@ -61,6 +66,13 @@ export default function PlayerPaymentHistoryModal({
       setSelectedTerm(initialTermId);
     }
   }, [initialTermId, isOpen]);
+
+  React.useEffect(() => {
+    if (isOpen && initialYear) {
+      setSelectedYear(String(initialYear));
+      setSelectedTerm("All");
+    }
+  }, [initialYear, isOpen]);
 
   const playerEnvelope = detailsRes?.data;
   const fetchedPlayer = playerEnvelope?.player || player;
@@ -100,9 +112,30 @@ export default function PlayerPaymentHistoryModal({
     return list;
   }, [financialSummary, playerEnvelope]);
 
-  // Filter items based on selectedTerm and selectedStatusFilter
+  const itemYear = useCallback((item: any) => {
+    const termId = String(item.termId?._id || item.termId || "");
+    const linkedTerm = terms.find((term) => String(term._id) === termId);
+    const directYear = item.year || item.event?.year || item.league?.year;
+    const dateYear = [item.event?.startDate, item.startDate, item.endDate, item.createdAt]
+      .map((date) => toDateOnly(date).slice(0, 4))
+      .find(Boolean);
+    return String(directYear || linkedTerm?.year || dateYear || "");
+  }, [terms]);
+  const availableYears = [...new Set([
+    getCurrentYearString(),
+    ...terms.map((term) => String(term.year || "")),
+    ...rawHistory.map(itemYear),
+  ].filter(Boolean))].sort((a, b) => Number(b) - Number(a));
+  const termsForYear = terms.filter((term) => selectedYear === "All" || String(term.year || "") === selectedYear);
+
+  // Filter the full history by year first so independent events and leagues
+  // without a linked term still follow their own year/date.
   const filteredHistory = useMemo(() => {
     return rawHistory.filter((item) => {
+      if (selectedYear !== "All" && itemYear(item) !== selectedYear) {
+        return false;
+      }
+
       // Term filter
       if (selectedTerm && selectedTerm !== "All") {
         const itemTermId = item.termId?.toString();
@@ -125,7 +158,7 @@ export default function PlayerPaymentHistoryModal({
 
       return true;
     });
-  }, [rawHistory, selectedTerm, selectedStatusFilter, terms]);
+  }, [rawHistory, selectedYear, selectedTerm, selectedStatusFilter, terms, itemYear]);
 
   // Compute Totals dynamically based on filtered items
   const totals = useMemo(() => {
@@ -281,7 +314,7 @@ export default function PlayerPaymentHistoryModal({
     }
 
     const termLabel = selectedTerm === "All"
-      ? "all terms"
+      ? `${selectedYear === "All" ? "all years" : selectedYear} · all terms`
       : terms.find((term) => term._id === selectedTerm)?.name || "the selected term";
     const confirmation = status === "PAID"
       ? `Confirm that payment has actually been received for each of the ${itemsToUpdate.length} filtered item(s) in ${termLabel}? The system will record or approve one payment transaction per billed item. Items already matching will be skipped.`
@@ -384,6 +417,23 @@ export default function PlayerPaymentHistoryModal({
         {/* Filters and Quick Actions Bar */}
         <div className="p-4 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-3 flex-wrap">
+            {/* Year Filter */}
+            <div className="flex items-center gap-1.5">
+              <Calendar size={14} className="text-slate-400" />
+              <span className="font-bold text-slate-700 dark:text-slate-300">Year:</span>
+              <select
+                value={selectedYear}
+                onChange={(e) => {
+                  setSelectedYear(e.target.value);
+                  setSelectedTerm("All");
+                }}
+                className="h-8 px-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold focus:outline-hidden focus:border-[#0047FF]"
+              >
+                <option value="All">All Years</option>
+                {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+              </select>
+            </div>
+
             {/* Term Filter */}
             <div className="flex items-center gap-1.5">
               <Calendar size={14} className="text-slate-400" />
@@ -394,9 +444,9 @@ export default function PlayerPaymentHistoryModal({
                 className="h-8 px-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold focus:outline-hidden focus:border-[#0047FF]"
               >
                 <option value="All">All Terms</option>
-                {terms.map((t) => (
+                {termsForYear.map((t) => (
                   <option key={t._id} value={t._id}>
-                    {t.name} {t.year ? `(${t.year})` : ""}
+                    {t.name}{t.isEvent ? " · Event" : ""} {t.year ? `(${t.year})` : ""}
                   </option>
                 ))}
               </select>
@@ -520,7 +570,7 @@ export default function PlayerPaymentHistoryModal({
               <CreditCard size={32} className="mx-auto text-slate-300 dark:text-slate-600 mb-2" />
               <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">No Payment Records Found</h3>
               <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                No classes or payment items match the selected term ({selectedTerm === "All" ? "All Terms" : "Filtered"}) and status criteria.
+                No classes or payment items match the selected year ({selectedYear === "All" ? "All Years" : selectedYear}), term and status criteria.
               </p>
             </div>
           ) : (

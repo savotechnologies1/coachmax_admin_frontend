@@ -9,7 +9,8 @@ import { ShieldAlert, Edit, Receipt } from "lucide-react";
 import RatingEditor from "./RatingEditor";
 import { StatusBadge } from "../common/StatusColorCode";
 import { getMediaUrl, getMediaFallback } from "../../utils/media";
-import { ageGroupForYear, formatDateOnly, formatTimestampDate } from "../../utils/dateTime";
+import { ageGroupForYear, formatDateOnly, formatTimestampDate, toDateOnly } from "../../utils/dateTime";
+import { getCurrentYearString } from "../../hooks/useCurrentTerm";
 
 const getBadgeStyles = (noteType: string) => {
   switch (noteType) {
@@ -101,6 +102,27 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
   const assignedTeamsInfo: any[] =
     playerEnvelope?.assignedTeamsPaymentInfo ||
     playerEnvelope?.teamPaymentSummary?.assignedTeamsWithPaymentStatus || [];
+
+  const activityYear = String(contextYear || getCurrentYearString());
+  const termYearById = new Map<string, string>(
+    (playerEnvelope?.availableTerms || []).map((term: any): [string, string] => [String(term._id), String(term.year || "")]),
+  );
+  const recordYear = (item: any) => {
+    const term = item.term || item.event?.termId || item.league?.term;
+    const termId = String(item.termId?._id || item.termId || term?._id || term || "");
+    const linkedTermYear = term?.year || termYearById.get(termId);
+    const explicitYear = item.year || item.event?.year || item.league?.year;
+    const dateYear = [item.event?.startDate, item.startDate, item.endDate, item.createdAt]
+      .map((date) => toDateOnly(date).slice(0, 4))
+      .find(Boolean);
+    const seasonYear = String(item.season || item.league?.season || "").match(/\b(?:19|20)\d{2}\b/)?.[0];
+    return String(explicitYear || linkedTermYear || dateYear || seasonYear || "");
+  };
+  const paymentHistory: any[] = playerEnvelope?.paymentFinancialSummary?.history || [];
+  const currentYearClassesInfo = assignedClassesInfo.filter((item) => recordYear(item) === activityYear);
+  const currentYearTeamsInfo = assignedTeamsInfo.filter((item) => recordYear(item) === activityYear);
+  const currentYearLeaguesInfo = paymentHistory.filter((item) => item.type === "LEAGUE" && recordYear(item) === activityYear);
+  const currentYearEventsInfo = paymentHistory.filter((item) => ["EVENT", "HOLIDAY_PROGRAM"].includes(item.type) && recordYear(item) === activityYear);
 
   const { data: notesRes } = useCoachNotes(playerId);
   const notes = notesRes?.data || [];
@@ -451,8 +473,8 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
             <div className="text-xs text-slate-700 dark:text-slate-350">
               <div className="flex items-center justify-between pb-1 border-b border-slate-50 dark:border-slate-800/40 mb-3">
                 <h4 className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                  <span>Assigned Classes</span>
-                  <span className="text-[#0047FF] font-extrabold">({assignedClassesInfo.length})</span>
+                  <span>Current Year Classes · {activityYear}</span>
+                  <span className="text-[#0047FF] font-extrabold">({currentYearClassesInfo.length})</span>
                 </h4>
                 <button
                   type="button"
@@ -464,7 +486,10 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
                 </button>
               </div>
               <div className="space-y-2">
-                {assignedClassesInfo.map((clsItem: any, idx: number) => {
+                {currentYearClassesInfo.length === 0 && (
+                  <div className="py-3 text-center text-[10px] italic text-slate-400">No classes in {activityYear}.</div>
+                )}
+                {currentYearClassesInfo.map((clsItem: any, idx: number) => {
                   const classId = clsItem.classId || clsItem._id || clsItem.id;
                   const className = clsItem.className || clsItem.name || "Class";
                   const status = clsItem.paymentStatus || player?.paymentStatus || "UNPAID";
@@ -522,15 +547,59 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
             </div>
           )}
 
-          {/* Section 5.6: Assigned Teams with Team Payment Status */}
-          {assignedTeamsInfo.length > 0 && (
+          {currentYearEventsInfo.length > 0 && (
             <div className="text-xs text-slate-700 dark:text-slate-350">
               <h4 className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[10px] mb-3 pb-1 border-b border-slate-50 dark:border-slate-800/40 flex justify-between items-center">
-                <span>Assigned Teams</span>
-                <span className="text-[#0047FF] font-extrabold">{assignedTeamsInfo.length}</span>
+                <span>Events · {activityYear}</span>
+                <span className="text-[#0047FF] font-extrabold">{currentYearEventsInfo.length}</span>
               </h4>
               <div className="space-y-2">
-                {assignedTeamsInfo.map((teamItem: any, idx: number) => {
+                {currentYearEventsInfo.map((registration: any) => {
+                  const event = registration.event || {};
+                  const eventId = event._id || registration.eventId;
+                  return (
+                    <div key={registration._id || eventId} className="flex items-center justify-between gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/50 text-xs">
+                      <Link to={eventId ? `/event-details/${eventId}` : "#"} className="min-w-0 font-bold text-slate-800 dark:text-slate-200 hover:text-[#0047FF]">
+                        <span className="block truncate">{event.title || registration.name || "Event"}</span>
+                        <span className="mt-0.5 block text-[10px] font-medium text-slate-400">{formatDateOnly(event.startDate || registration.startDate) || activityYear}</span>
+                      </Link>
+                      <StatusBadge status={registration.paymentStatus || registration.status || "UNPAID"} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {currentYearLeaguesInfo.length > 0 && (
+            <div className="text-xs text-slate-700 dark:text-slate-350">
+              <h4 className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[10px] mb-3 pb-1 border-b border-slate-50 dark:border-slate-800/40 flex justify-between items-center">
+                <span>Leagues · {activityYear}</span>
+                <span className="text-[#0047FF] font-extrabold">{currentYearLeaguesInfo.length}</span>
+              </h4>
+              <div className="space-y-2">
+                {currentYearLeaguesInfo.map((league: any) => (
+                  <div key={`${league.leagueId}:${league.teamId}`} className="flex items-center justify-between gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/50 text-xs">
+                    <Link to={`/leagues/${league.leagueId}`} className="min-w-0 font-bold text-slate-800 dark:text-slate-200 hover:text-[#0047FF]">
+                      <span className="block truncate">{league.leagueName || league.name || "League"}</span>
+                      <span className="mt-0.5 block truncate text-[10px] font-medium text-slate-400">{[league.termName, league.season, league.teamName].filter(Boolean).join(" · ")}</span>
+                    </Link>
+                    <StatusBadge status={league.paymentStatus || "UNPAID"} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Section 5.6: Assigned Teams with Team Payment Status */}
+          {currentYearTeamsInfo.length > 0 && (
+            <div className="text-xs text-slate-700 dark:text-slate-350">
+              <h4 className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[10px] mb-3 pb-1 border-b border-slate-50 dark:border-slate-800/40 flex justify-between items-center">
+                <span>Teams · {activityYear}</span>
+                <span className="text-[#0047FF] font-extrabold">{currentYearTeamsInfo.length}</span>
+              </h4>
+              <div className="space-y-2">
+                {currentYearTeamsInfo.map((teamItem: any, idx: number) => {
                   const teamName = teamItem.teamName || teamItem.name || "Team";
                   const status = teamItem.paymentStatus || "PAID";
                   return (
@@ -649,6 +718,7 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
         isOpen={isPaymentHistoryOpen}
         onClose={() => setIsPaymentHistoryOpen(false)}
         player={player}
+        initialYear={activityYear}
       />
     </>
   );
