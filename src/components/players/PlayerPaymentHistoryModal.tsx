@@ -43,6 +43,8 @@ const VALID_STATUSES = [
   { value: "SUBSTITUTE", label: "SUBSTITUTE" },
 ];
 
+const NO_TERM_LINKED = "__NO_TERM_LINKED__";
+
 export default function PlayerPaymentHistoryModal({
   isOpen,
   onClose,
@@ -57,6 +59,7 @@ export default function PlayerPaymentHistoryModal({
 
   const [selectedTerm, setSelectedTerm] = useState<string>(initialTermId || "All");
   const [selectedYear, setSelectedYear] = useState<string>(String(initialYear || getCurrentYearString()));
+  const [selectedRecordType, setSelectedRecordType] = useState<string>("All");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("All");
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
 
@@ -128,6 +131,28 @@ export default function PlayerPaymentHistoryModal({
   ].filter(Boolean))].sort((a, b) => Number(b) - Number(a));
   const termsForYear = terms.filter((term) => selectedYear === "All" || String(term.year || "") === selectedYear);
 
+  const itemLinkedTermId = useCallback((item: any) => {
+    const explicitTermId = String(item.termId?._id || item.termId || item.term?._id || "").trim();
+    if (explicitTermId && !["null", "undefined", "no term linked"].includes(explicitTermId.toLowerCase())) {
+      return explicitTermId;
+    }
+
+    const termName = String(item.termName || item.term?.name || "").trim().toLowerCase();
+    if (!termName || termName.includes("no term linked")) return "";
+    const recordYear = itemYear(item);
+    const matchingTerm = termsForYear.find((term) =>
+      String(term.name || "").trim().toLowerCase() === termName &&
+      (!recordYear || String(term.year || "") === recordYear),
+    );
+    return String(matchingTerm?._id || "");
+  }, [termsForYear, itemYear]);
+
+  const itemRecordType = (item: any) => {
+    if (item.type === "EVENT" || item.type === "HOLIDAY_PROGRAM") return "EVENTS";
+    if (item.type === "LEAGUE") return "LEAGUES";
+    return "OTHER";
+  };
+
   // Filter the full history by year first so independent events and leagues
   // without a linked term still follow their own year/date.
   const filteredHistory = useMemo(() => {
@@ -138,15 +163,15 @@ export default function PlayerPaymentHistoryModal({
 
       // Term filter
       if (selectedTerm && selectedTerm !== "All") {
-        const itemTermId = item.termId?.toString();
-        const itemTermName = item.termName?.toLowerCase();
-        // Check both ID match and name match (in case term name passed)
-        const matchId = itemTermId === selectedTerm;
-        const matchingTermObj = terms.find((t) => t._id === selectedTerm);
-        const matchName = matchingTermObj && itemTermName === matchingTermObj.name?.toLowerCase();
-        if (!matchId && !matchName) {
+        const linkedTermId = itemLinkedTermId(item);
+        if (selectedTerm === NO_TERM_LINKED ? Boolean(linkedTermId) : linkedTermId !== selectedTerm) {
           return false;
         }
+      }
+
+      // Event and league records can be filtered directly even when no term is linked.
+      if (selectedRecordType !== "All" && itemRecordType(item) !== selectedRecordType) {
+        return false;
       }
 
       // Status filter
@@ -158,7 +183,7 @@ export default function PlayerPaymentHistoryModal({
 
       return true;
     });
-  }, [rawHistory, selectedYear, selectedTerm, selectedStatusFilter, terms, itemYear]);
+  }, [rawHistory, selectedYear, selectedTerm, selectedRecordType, selectedStatusFilter, itemLinkedTermId, itemYear]);
 
   // Compute Totals dynamically based on filtered items
   const totals = useMemo(() => {
@@ -444,11 +469,27 @@ export default function PlayerPaymentHistoryModal({
                 className="h-8 px-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold focus:outline-hidden focus:border-[#0047FF]"
               >
                 <option value="All">All Terms</option>
+                <option value={NO_TERM_LINKED}>No Term Linked</option>
                 {termsForYear.map((t) => (
                   <option key={t._id} value={t._id}>
                     {t.name}{t.isEvent ? " · Event" : ""} {t.year ? `(${t.year})` : ""}
                   </option>
                 ))}
+              </select>
+            </div>
+
+            {/* Independent event and league filters */}
+            <div className="flex items-center gap-1.5">
+              <Filter size={14} className="text-slate-400" />
+              <span className="font-bold text-slate-700 dark:text-slate-300">Type:</span>
+              <select
+                value={selectedRecordType}
+                onChange={(e) => setSelectedRecordType(e.target.value)}
+                className="h-8 px-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-bold focus:outline-hidden focus:border-[#0047FF]"
+              >
+                <option value="All">All Types</option>
+                <option value="EVENTS">Events & programs</option>
+                <option value="LEAGUES">Leagues & tournaments</option>
               </select>
             </div>
 
