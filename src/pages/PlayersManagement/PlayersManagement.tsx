@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import PageMeta from "../../components/common/PageMeta";
 import { Player } from "../../types/player";
 import PlayerStatsCards from "../../components/players/PlayerStatsCards";
@@ -51,14 +51,18 @@ export default function PlayersManagement() {
   const [limit, setLimit] = useState(10);
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
   const { terms, isLoading: termsLoading } = useTerms({ isEvent: "all" });
+  const currentYearTerms = useMemo(() => terms.filter((term) => String(term.year) === yearFilter), [terms, yearFilter]);
+  const currentTermForYear = useMemo(
+    () => findCurrentTerm(currentYearTerms.filter((term) => !term.isEvent), { isEvent: false }) || findCurrentTerm(currentYearTerms),
+    [currentYearTerms],
+  );
+  const drawerTerm = currentYearTerms.find((term) => term._id === termFilter && !term.isEvent) || currentTermForYear;
 
   useEffect(() => {
     if (initialTermSelected || termsLoading) return;
-    const currentYearTerms = terms.filter((term) => String(term.year) === yearFilter);
-    const currentTerm = findCurrentTerm(currentYearTerms.filter((term) => !term.isEvent)) || findCurrentTerm(currentYearTerms);
-    setTermFilter(currentTerm?._id || "All");
+    setTermFilter(currentTermForYear?._id || "All");
     setInitialTermSelected(true);
-  }, [initialTermSelected, termsLoading, terms, yearFilter]);
+  }, [initialTermSelected, termsLoading, currentTermForYear]);
 
   // Fetch dynamic player statistics scoped to selected term
   const { data: statsResponse } = usePlayerStats(termFilter, yearFilter);
@@ -259,6 +263,7 @@ export default function PlayersManagement() {
             onClose={() => setSelectedPlayer(null)} 
             onEditPlayer={access.can("players", "edit") ? setPlayerToEdit : undefined}
             contextYear={Number(yearFilter) || undefined}
+            contextTermId={drawerTerm?._id}
           />
         )}
       </div>

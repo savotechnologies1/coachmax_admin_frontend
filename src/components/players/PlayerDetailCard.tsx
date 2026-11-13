@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import { Player } from "../../types/player";
 import { useAdminPlayerDetails, usePlayerProfile, useCoachNotes, useUpdatePlayerPaymentStatus } from "../../hooks/usePlayers";
 import AddCoachNoteModal from "../CoachManagement/AddCoachNoteModal";
@@ -7,10 +9,49 @@ import EditPlayerStatsModal from "./EditPlayerStatsModal";
 import PlayerPaymentHistoryModal from "./PlayerPaymentHistoryModal";
 import { ShieldAlert, Edit, Receipt } from "lucide-react";
 import RatingEditor from "./RatingEditor";
-import { StatusBadge } from "../common/StatusColorCode";
 import { getMediaUrl, getMediaFallback } from "../../utils/media";
 import { ageGroupForYear, formatDateOnly, formatTimestampDate, toDateOnly } from "../../utils/dateTime";
-import { getCurrentYearString } from "../../hooks/useCurrentTerm";
+import { findCurrentTerm, getCurrentYearString } from "../../hooks/useCurrentTerm";
+import { updateEventRegistrationPaymentStatus } from "../../api/eventApi";
+
+const PAYMENT_STATUSES = [
+  { value: "PAID", label: "PAID" },
+  { value: "UNPAID", label: "UNPAID" },
+  { value: "TRIAL", label: "TRIAL" },
+  { value: "OVER_DUE", label: "OVER DUE" },
+  { value: "HANDSHAKE", label: "HANDSHAKE" },
+  { value: "TBC", label: "TBC" },
+  { value: "EXTRA", label: "EXTRA" },
+  { value: "SUBSTITUTE", label: "SUBSTITUTE" },
+];
+
+const paymentStatusValue = (value?: string) => {
+  const status = String(value || "UNPAID").toUpperCase();
+  if (status.includes("UNPAID") || status.includes("PENDING")) return "UNPAID";
+  if (status.includes("OVERDUE")) return "OVER_DUE";
+  if (status.includes("APPROVED") || status === "ACTIVE") return "PAID";
+  return PAYMENT_STATUSES.some((option) => option.value === status) ? status : "UNPAID";
+};
+
+function PaymentStatusSelect({ value, name, onChange, disabled }: { value?: string; name: string; onChange: (status: string) => void; disabled: boolean }) {
+  const statusValue = paymentStatusValue(value);
+  const statusClasses = statusValue === "PAID"
+    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+    : statusValue === "UNPAID" || statusValue === "OVER_DUE"
+      ? "border-amber-300 bg-amber-50 text-amber-700"
+      : "border-slate-300 bg-slate-50 text-slate-700";
+  return (
+    <select
+      aria-label={`Payment status for ${name}`}
+      value={statusValue}
+      onChange={(event) => onChange(event.target.value)}
+      disabled={disabled}
+      className={`h-6 max-w-28 border px-1.5 text-[9px] font-bold uppercase disabled:cursor-wait disabled:opacity-60 ${statusClasses}`}
+    >
+      {PAYMENT_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+    </select>
+  );
+}
 
 const getBadgeStyles = (noteType: string) => {
   switch (noteType) {
@@ -52,9 +93,10 @@ interface PlayerDetailCardProps {
   onEditPlayer?: (player: Player) => void;
   isRegistrationRequest?: boolean;
   contextYear?: number;
+  contextTermId?: string;
 }
 
-export default function PlayerDetailCard({ player: initialPlayer, onClose, onAssignClass, onEditPlayer, isRegistrationRequest, contextYear }: PlayerDetailCardProps) {
+export default function PlayerDetailCard({ player: initialPlayer, onClose, onAssignClass, onEditPlayer, isRegistrationRequest, contextYear, contextTermId }: PlayerDetailCardProps) {
   const playerId = initialPlayer?._id || (initialPlayer as any)?.playerId || (initialPlayer as any)?.id;
   // Query full admin profile details (same source as PlayerProfilePage)
   const { data: adminDetailsRes } = useAdminPlayerDetails(playerId);
@@ -98,12 +140,14 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
       location: c.location
     })) || [];
 
-  // Extract assigned teams with team payment status
-  const assignedTeamsInfo: any[] =
-    playerEnvelope?.assignedTeamsPaymentInfo ||
-    playerEnvelope?.teamPaymentSummary?.assignedTeamsWithPaymentStatus || [];
-
   const activityYear = String(contextYear || getCurrentYearString());
+  const yearTerms: any[] = (playerEnvelope?.availableTerms || []).filter((term: any) => String(term.year || "") === activityYear);
+  const classTerms = yearTerms.filter((term: any) => !term.isEvent);
+  const currentClassTerm = contextTermId
+    ? yearTerms.find((term: any) => String(term._id) === String(contextTermId))
+    : findCurrentTerm(classTerms, { isEvent: false }) || findCurrentTerm(yearTerms);
+  const activeClassTermId = String(contextTermId || currentClassTerm?._id || "");
+  const activeClassTermLabel = currentClassTerm?.name || "Current term";
   const termYearById = new Map<string, string>(
     (playerEnvelope?.availableTerms || []).map((term: any): [string, string] => [String(term._id), String(term.year || "")]),
   );
@@ -119,8 +163,10 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
     return String(explicitYear || linkedTermYear || dateYear || seasonYear || "");
   };
   const paymentHistory: any[] = playerEnvelope?.paymentFinancialSummary?.history || [];
-  const currentYearClassesInfo = assignedClassesInfo.filter((item) => recordYear(item) === activityYear);
-  const currentYearTeamsInfo = assignedTeamsInfo.filter((item) => recordYear(item) === activityYear);
+  const currentTermClassesInfo = assignedClassesInfo.filter((item) => {
+    const linkedTermId = String(item.termId?._id || item.termId || item.term?._id || "");
+    return activeClassTermId ? linkedTermId === activeClassTermId : recordYear(item) === activityYear;
+  });
   const currentYearLeaguesInfo = paymentHistory.filter((item) => item.type === "LEAGUE" && recordYear(item) === activityYear);
   const currentYearEventsInfo = paymentHistory.filter((item) => ["EVENT", "HOLIDAY_PROGRAM"].includes(item.type) && recordYear(item) === activityYear);
 
@@ -130,6 +176,20 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [isPaymentHistoryOpen, setIsPaymentHistoryOpen] = useState(false);
   const updatePaymentStatusMutation = useUpdatePlayerPaymentStatus();
+  const queryClient = useQueryClient();
+  const updateEventStatusMutation = useMutation({
+    mutationFn: ({ registrationId, paymentStatus, eventId }: { registrationId: string; paymentStatus: string; eventId: string }) =>
+      updateEventRegistrationPaymentStatus(registrationId, paymentStatus, { eventId, playerId: String(playerId) }),
+    onSuccess: async (result: any) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["adminPlayerDetails", String(playerId)] }),
+        queryClient.invalidateQueries({ queryKey: ["playerProfile", String(playerId)] }),
+        queryClient.invalidateQueries({ queryKey: ["events"] }),
+      ]);
+      toast.success(result?.message || "Event payment status updated successfully");
+    },
+    onError: (error: any) => toast.error(error?.response?.data?.message || error.message || "Failed to update event payment status"),
+  });
 
   const avatar = getMediaUrl(player.profileImage, getMediaFallback(player.fullName));
 
@@ -473,8 +533,8 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
             <div className="text-xs text-slate-700 dark:text-slate-350">
               <div className="flex items-center justify-between pb-1 border-b border-slate-50 dark:border-slate-800/40 mb-3">
                 <h4 className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                  <span>Current Year Classes · {activityYear}</span>
-                  <span className="text-[#0047FF] font-extrabold">({currentYearClassesInfo.length})</span>
+                  <span>Classes · {activeClassTermLabel} · {activityYear}</span>
+                  <span className="text-[#0047FF] font-extrabold">({currentTermClassesInfo.length})</span>
                 </h4>
                 <button
                   type="button"
@@ -486,10 +546,10 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
                 </button>
               </div>
               <div className="space-y-2">
-                {currentYearClassesInfo.length === 0 && (
-                  <div className="py-3 text-center text-[10px] italic text-slate-400">No classes in {activityYear}.</div>
+                {currentTermClassesInfo.length === 0 && (
+                  <div className="py-3 text-center text-[10px] italic text-slate-400">No classes in {activeClassTermLabel} · {activityYear}.</div>
                 )}
-                {currentYearClassesInfo.map((clsItem: any, idx: number) => {
+                {currentTermClassesInfo.map((clsItem: any, idx: number) => {
                   const classId = clsItem.classId || clsItem._id || clsItem.id;
                   const className = clsItem.className || clsItem.name || "Class";
                   const status = clsItem.paymentStatus || player?.paymentStatus || "UNPAID";
@@ -512,33 +572,19 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <select
+                        <PaymentStatusSelect
                           value={st}
-                          onChange={(e) => {
+                          name={className}
+                          onChange={(paymentStatus) => {
                             if (playerId && classId) {
                               updatePaymentStatusMutation.mutate({
                                 userId: playerId,
-                                payload: { paymentStatus: e.target.value, classId: classId.toString() },
+                                payload: { paymentStatus, classId: classId.toString() },
                               });
                             }
                           }}
-                          className={`h-6 px-1.5 text-[9px] font-bold uppercase rounded-none border cursor-pointer ${
-                            st === "PAID"
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400"
-                              : st === "UNPAID" || st === "OVER_DUE"
-                              ? "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-400"
-                              : "bg-slate-50 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300"
-                          }`}
-                        >
-                          <option value="PAID">PAID</option>
-                          <option value="UNPAID">UNPAID</option>
-                          <option value="TRIAL">TRIAL</option>
-                          <option value="OVER_DUE">OVER DUE</option>
-                          <option value="HANDSHAKE">HANDSHAKE</option>
-                          <option value="TBC">TBC</option>
-                          <option value="EXTRA">EXTRA</option>
-                          <option value="SUBSTITUTE">SUBSTITUTE</option>
-                        </select>
+                          disabled={updatePaymentStatusMutation.isPending}
+                        />
                       </div>
                     </div>
                   );
@@ -563,7 +609,16 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
                         <span className="block truncate">{event.title || registration.name || "Event"}</span>
                         <span className="mt-0.5 block text-[10px] font-medium text-slate-400">{formatDateOnly(event.startDate || registration.startDate) || activityYear}</span>
                       </Link>
-                      <StatusBadge status={registration.paymentStatus || registration.status || "UNPAID"} />
+                      <PaymentStatusSelect
+                        value={registration.paymentStatus || registration.status || "UNPAID"}
+                        name={registration.name || event.title || "Event"}
+                        onChange={(paymentStatus) => updateEventStatusMutation.mutate({
+                          registrationId: String(registration.registrationId || ""),
+                          paymentStatus,
+                          eventId: String(eventId || ""),
+                        })}
+                        disabled={updateEventStatusMutation.isPending || !registration.registrationId || !eventId}
+                      />
                     </div>
                   );
                 })}
@@ -584,38 +639,17 @@ export default function PlayerDetailCard({ player: initialPlayer, onClose, onAss
                       <span className="block truncate">{league.leagueName || league.name || "League"}</span>
                       <span className="mt-0.5 block truncate text-[10px] font-medium text-slate-400">{[league.termName, league.season, league.teamName].filter(Boolean).join(" · ")}</span>
                     </Link>
-                    <StatusBadge status={league.paymentStatus || "UNPAID"} />
+                      <PaymentStatusSelect
+                        value={league.paymentStatus || "UNPAID"}
+                        name={league.name || league.leagueName || "League"}
+                        onChange={(paymentStatus) => updatePaymentStatusMutation.mutate({
+                          userId: String(playerId),
+                          payload: { paymentStatus, teamId: String(league.teamId || ""), leagueId: String(league.leagueId || "") },
+                        })}
+                        disabled={updatePaymentStatusMutation.isPending || !league.teamId || !league.leagueId}
+                      />
                   </div>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {/* Section 5.6: Assigned Teams with Team Payment Status */}
-          {currentYearTeamsInfo.length > 0 && (
-            <div className="text-xs text-slate-700 dark:text-slate-350">
-              <h4 className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[10px] mb-3 pb-1 border-b border-slate-50 dark:border-slate-800/40 flex justify-between items-center">
-                <span>Teams · {activityYear}</span>
-                <span className="text-[#0047FF] font-extrabold">{currentYearTeamsInfo.length}</span>
-              </h4>
-              <div className="space-y-2">
-                {currentYearTeamsInfo.map((teamItem: any, idx: number) => {
-                  const teamName = teamItem.teamName || teamItem.name || "Team";
-                  const status = teamItem.paymentStatus || "PAID";
-                  return (
-                    <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/50 text-xs">
-                      <div>
-                        <span className="font-bold text-slate-800 dark:text-slate-200 block">{teamName}</span>
-                        {teamItem.teamFee !== undefined && (
-                          <span className="text-[10px] text-slate-400 font-medium">Fee: ${teamItem.teamFee}</span>
-                        )}
-                      </div>
-                      <div>
-                        <StatusBadge status={status} />
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             </div>
           )}
