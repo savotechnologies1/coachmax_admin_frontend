@@ -13,7 +13,7 @@ import { useAdminPlayerDetails } from "../../hooks/usePlayers";
 import { findCurrentTerm } from "../../hooks/useCurrentTerm";
 import type { Term } from "../../hooks/useTerms";
 import { chatApi } from "../../services/chatApi";
-import { ageGroupForYear, formatDateOnly, formatTimestampDate } from "../../utils/dateTime";
+import { ageGroupForYear, formatDateOnly, formatTimestampDate, toDateOnly } from "../../utils/dateTime";
 import { getMediaFallback, getMediaUrl } from "../../utils/media";
 
 function Detail({ title, value }: { title: string; value?: React.ReactNode }) {
@@ -24,6 +24,7 @@ export default function PlayerProfilePage() {
   const { playerId } = useParams<{ playerId: string }>();
   const navigate = useNavigate();
   const { data: detailsRes, isLoading, isError } = useAdminPlayerDetails(playerId);
+  const [selectedYear, setSelectedYear] = useState("CURRENT");
   const [selectedTerm, setSelectedTerm] = useState("CURRENT");
   const [editingPlayer, setEditingPlayer] = useState(false);
   const [editingStats, setEditingStats] = useState(false);
@@ -32,9 +33,37 @@ export default function PlayerProfilePage() {
   const parent = data?.parent || player?.parentId;
   const terms: Term[] = data?.availableTerms || [];
   const currentTerm = findCurrentTerm(terms, { isEvent: false }) || findCurrentTerm(terms);
+  const yearValueFrom = (value: unknown) => String(value || "").match(/\b(?:19|20)\d{2}\b/)?.[0] || "";
+  const yearFromDate = (value: unknown) => yearValueFrom(toDateOnly(value as string | Date));
+  const recordYear = (item: any) => {
+    const directYear = yearValueFrom(item.term?.year || item.event?.termId?.year || item.year || item.league?.year || item.event?.year);
+    if (directYear) return directYear;
+    const dateYear = yearFromDate(item.event?.startDate || item.startDate || item.sessionDate || item.event?.endDate || item.endDate || item.createdAt);
+    return dateYear || yearValueFrom(item.season || item.league?.season);
+  };
+  const activityYears = [
+    ...(data?.assignedClassesPaymentInfo || []).map(recordYear),
+    ...(data?.assignedTeamsPaymentInfo || []).map(recordYear),
+    ...(data?.assignedLeagueInfo || []).map(recordYear),
+    ...(data?.leagueStatistics || []).map(recordYear),
+    ...(data?.eventRegistrations || []).map(recordYear),
+    ...(data?.paymentFinancialSummary?.history || []).map(recordYear),
+    ...(data?.paymentTransactions || []).map(recordYear),
+    ...(data?.perDayAttendance || []).map(recordYear),
+  ];
+  const years = [...new Set([...terms.map((term) => term.year), ...activityYears].map(yearValueFrom).filter(Boolean))].sort((a, b) => Number(b) - Number(a));
+  const yearValue = selectedYear === "CURRENT" ? String(currentTerm?.year || years[0] || "ALL") : selectedYear;
+  const termsForYear = yearValue === "ALL" ? [] : terms.filter((term) => String(term.year || "") === yearValue);
   const termId = selectedTerm === "CURRENT" ? currentTerm?._id || "ALL" : selectedTerm;
   const selectedTermRecord = terms.find((term) => String(term._id) === termId);
-  const termLabel = termId === "ALL" ? "All terms" : selectedTerm === "NO_TERM" ? "No term linked" : selectedTermRecord ? `${selectedTermRecord.name}${selectedTermRecord.year ? ` ${selectedTermRecord.year}` : ""}` : "Current term";
+  const displayTermName = (term: Term, includeYear = false) => {
+    const name = String(term.name || "");
+    const year = String(term.year || "");
+    const termName = year ? name.replace(new RegExp(`\\s*[-–—]?\\s*${year}$`), "").trim() || name : name;
+    return includeYear && year ? `${year} · ${termName}` : termName;
+  };
+  const termLabel = termId === "ALL" ? (yearValue === "ALL" ? "All terms" : `${yearValue} · All terms`) : selectedTerm === "NO_TERM" ? "No term linked" : selectedTermRecord ? `${yearValue !== "ALL" ? `${yearValue} · ` : ""}${displayTermName(selectedTermRecord, yearValue === "ALL")}` : "Current term";
+  const termSelectValue = selectedTerm === "CURRENT" && (!currentTerm || String(currentTerm.year || "") !== yearValue) ? "ALL" : selectedTerm;
 
   if (isLoading) return <div className="grid min-h-80 place-items-center text-sm text-gray-500">Loading player details…</div>;
   if (isError || !player) return <div className="border border-gray-200 bg-white p-8 text-center"><h2 className="font-bold text-gray-900">Player details unavailable</h2><p className="mt-1 text-sm text-gray-500">The player record could not be loaded.</p><button onClick={() => navigate("/players")} className="mt-4 bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Back to players</button></div>;
@@ -72,9 +101,9 @@ export default function PlayerProfilePage() {
 
     <FamilyPlayerSwitcher children={data?.familyPlayers || []} selectedId={player._id} />
 
-    <section className="flex flex-wrap items-center justify-between gap-3 border border-blue-200 bg-blue-50/50 px-4 py-3"><div><h2 className="text-sm font-bold text-[#07194f]">Showing {termLabel}</h2><p className="text-xs text-gray-600">This selection controls classes, attendance, events, payments, transactions, tournaments and coach notes.</p></div><label className="flex items-center gap-2 text-xs font-semibold text-gray-700">Term<select aria-label="Select term for player details" value={selectedTerm} onChange={(event) => setSelectedTerm(event.target.value)} className="min-w-44 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:border-blue-600"><option value="CURRENT">Current term{currentTerm ? ` · ${currentTerm.name} ${currentTerm.year || ""}` : ""}</option>{terms.filter((term) => String(term._id) !== String(currentTerm?._id)).map((term) => <option key={term._id} value={term._id}>{term.name} {term.year || ""}{term.isEvent ? " · Holiday" : ""}</option>)}<option value="ALL">All terms</option><option value="NO_TERM">No term linked</option></select></label></section>
+    <section className="flex flex-wrap items-center justify-between gap-3 border border-blue-200 bg-blue-50/50 px-4 py-3"><div><h2 className="text-sm font-bold text-[#07194f]">Showing {termLabel}</h2><p className="text-xs text-gray-600">This selection controls classes, attendance, events, payments, transactions, tournaments and coach notes.</p></div><div className="flex flex-wrap items-center gap-3"><label className="flex items-center gap-2 text-xs font-semibold text-gray-700">Year<select aria-label="Select year for player details" value={yearValue} onChange={(event) => { const year = event.target.value; setSelectedYear(year); setSelectedTerm(year !== "ALL" && year === String(currentTerm?.year || "") ? "CURRENT" : "ALL"); }} className="min-w-28 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:border-blue-600"><option value="ALL">All years</option>{years.map((year) => <option key={year} value={year}>{year}</option>)}</select></label><label className="flex items-center gap-2 text-xs font-semibold text-gray-700">Term<select aria-label="Select term for player details" value={termSelectValue} onChange={(event) => setSelectedTerm(event.target.value)} className="min-w-44 border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:border-blue-600">{currentTerm && String(currentTerm.year || "") === yearValue && <option value="CURRENT">Current term · {displayTermName(currentTerm)}</option>}{termsForYear.filter((term) => String(term._id) !== String(currentTerm?._id)).map((term) => <option key={term._id} value={term._id}>{displayTermName(term)}{term.isEvent ? " · Holiday" : ""}</option>)}<option value="ALL">All terms</option><option value="NO_TERM">No term linked</option></select></label></div></section>
 
-    <PlayerTermDashboard data={data || {}} player={player} termId={termId} termLabel={termLabel} />
+    <PlayerTermDashboard data={data || {}} player={player} termId={termId} termLabel={termLabel} year={yearValue} />
     <EditPlayerStatsModal isOpen={editingStats} onClose={() => setEditingStats(false)} playerId={player._id} playerName={name} initialStats={player.statistics || {}} />
     <EditPlayerModal isOpen={editingPlayer} onClose={() => setEditingPlayer(false)} player={player} />
   </div>;

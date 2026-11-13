@@ -1,17 +1,36 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Activity, CalendarDays, CheckCircle2, ChevronDown, Clock3, ExternalLink, FileText, Receipt, Trophy, XCircle } from "lucide-react";
+import toast from "react-hot-toast";
+import { updateEventRegistrationPaymentStatus } from "../../api/eventApi";
 import { useCoachNotes, useUpdatePlayerPaymentStatus } from "../../hooks/usePlayers";
 import { formatDateOnly, toDateOnly } from "../../utils/dateTime";
 
 type Item = Record<string, any>;
 type Tab = "overview" | "attendance" | "finance" | "competition" | "notes";
-type Props = { data: Item; player: Item; termId: string; termLabel: string };
+type Props = { data: Item; player: Item; termId: string; termLabel: string; year: string };
 const id = (value: unknown) => String((value as Item)?._id || value || "");
 const itemTerm = (item: Item) => id(item.termId || item.term?._id || item.event?.termId?._id);
 const shownDate = (value?: string | Date) => value ? formatDateOnly(value) || "—" : "—";
 const money = (value?: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(Number(value) || 0);
 const label = (value?: string) => String(value || "Not recorded").replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+const PAYMENT_STATUSES = [
+  { value: "PAID", label: "Paid" },
+  { value: "UNPAID", label: "Unpaid" },
+  { value: "TRIAL", label: "Trial" },
+  { value: "OVER_DUE", label: "Overdue" },
+  { value: "HANDSHAKE", label: "Handshake" },
+  { value: "TBC", label: "TBC" },
+  { value: "EXTRA", label: "Extra" },
+  { value: "SUBSTITUTE", label: "Substitute" },
+];
+const paymentStatusValue = (value?: string) => {
+  const status = String(value || "UNPAID").toUpperCase();
+  if (["PAYMENT_PENDING", "PENDING", "OVERDUE"].includes(status)) return status === "OVERDUE" ? "OVER_DUE" : "UNPAID";
+  if (["APPROVED", "ACTIVE"].includes(status)) return "PAID";
+  return PAYMENT_STATUSES.some((option) => option.value === status) ? status : "UNPAID";
+};
 const tone = (value?: string) => {
   const status = String(value || "").toUpperCase();
   if (["PAID", "APPROVED", "PRESENT", "ACTIVE"].includes(status)) return "border-emerald-200 bg-emerald-50 text-emerald-700";
@@ -34,29 +53,82 @@ function LinkRow({ title, subtitle, badge, onClick }: { title: string; subtitle?
   const content = <><span className="min-w-0"><span className="block truncate text-sm font-semibold text-gray-900">{title}</span>{subtitle && <span className="mt-0.5 block text-xs text-gray-500">{subtitle}</span>}</span><span className="flex shrink-0 items-center gap-2">{badge && <Badge value={badge} />}{onClick && <ExternalLink size={13} className="text-blue-600" />}</span></>;
   return onClick ? <button type="button" onClick={onClick} className="flex w-full items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 text-left last:border-0 hover:bg-blue-50/40">{content}</button> : <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 last:border-0">{content}</div>;
 }
+function PaymentStatusControl({ value, name, onChange, disabled }: { value?: string; name: string; onChange: (status: string) => void; disabled: boolean }) {
+  return <select aria-label={`Payment status for ${name}`} value={paymentStatusValue(value)} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="max-w-32 border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 disabled:cursor-wait disabled:opacity-60">
+    {PAYMENT_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+  </select>;
+}
+function StatusRow({ title, subtitle, paymentStatus, onStatusChange, onClick, disabled }: { title: string; subtitle?: string; paymentStatus?: string; onStatusChange: (status: string) => void; onClick: () => void; disabled: boolean }) {
+  return <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 last:border-0">
+    <button type="button" onClick={onClick} className="min-w-0 text-left hover:text-blue-700">
+      <span className="block truncate text-sm font-semibold text-gray-900">{title}</span>
+      {subtitle && <span className="mt-0.5 block text-xs text-gray-500">{subtitle}</span>}
+    </button>
+    <span className="flex shrink-0 items-center gap-2"><PaymentStatusControl value={paymentStatus} name={title} onChange={onStatusChange} disabled={disabled} /><ExternalLink size={13} className="text-blue-600" /></span>
+  </div>;
+}
 
-export default function PlayerTermDashboard({ data, player, termId, termLabel }: Props) {
+export default function PlayerTermDashboard({ data, player, termId, termLabel, year }: Props) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const updatePaymentStatus = useUpdatePlayerPaymentStatus();
+  const updateEventPaymentStatus = useMutation({
+    mutationFn: ({ registrationId, paymentStatus, eventId }: { registrationId: string; paymentStatus: string; eventId: string }) =>
+      updateEventRegistrationPaymentStatus(registrationId, paymentStatus, { eventId, playerId: String(player._id) }),
+    onSuccess: async (result: any) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["adminPlayerDetails", String(player._id)] }),
+        queryClient.invalidateQueries({ queryKey: ["playerProfile", String(player._id)] }),
+        queryClient.invalidateQueries({ queryKey: ["events"] }),
+      ]);
+      toast.success(result?.message || "Event payment status updated successfully");
+    },
+    onError: (error: any) => toast.error(error?.response?.data?.message || error.message || "Failed to update event payment status"),
+  });
   const [tab, setTab] = useState<Tab>("overview");
   const [notesPage, setNotesPage] = useState(1);
-  useEffect(() => setNotesPage(1), [termId]);
-  const inTerm = (item: Item) => termId === "ALL" || (termId === "NO_TERM" ? !itemTerm(item) : itemTerm(item) === termId);
-  const classes: Item[] = (data.assignedClassesPaymentInfo || []).filter(inTerm);
-  const teams: Item[] = (data.assignedTeamsPaymentInfo || []).filter(inTerm);
-  const attendance: Item[] = (data.perDayAttendance || []).filter(inTerm);
-  const charges: Item[] = (data.paymentFinancialSummary?.history || []).filter(inTerm);
-  const transactions: Item[] = (data.paymentTransactions || []).filter(inTerm);
-  const events: Item[] = (data.eventRegistrations || []).filter((item: Item) => inTerm({ termId: item.event?.termId?._id || item.event?.termId }));
+  useEffect(() => setNotesPage(1), [termId, year]);
+  const termYears = new Map<string, string>((data.availableTerms || []).map((term: Item): [string, string] => [String(term._id), String(term.year || "")]));
+  const itemYear = (item: Item) => {
+    const linkedTermYear = item.term?.year || item.event?.termId?.year || termYears.get(itemTerm(item));
+    const explicitYear = item.year || item.league?.year || item.event?.year;
+    const seasonYear = String(item.season || item.league?.season || "").match(/\b(?:19|20)\d{2}\b/)?.[0];
+    const dateYear = [item.event?.startDate, item.startDate, item.sessionDate, item.event?.endDate, item.endDate, item.createdAt]
+      .map((value) => toDateOnly(value).slice(0, 4))
+      .find(Boolean);
+    return String(linkedTermYear || explicitYear || dateYear || seasonYear || "");
+  };
+  const inYear = (item: Item) => year === "ALL" || itemYear(item) === year;
+  const inScope = (item: Item) => {
+    if (!inYear(item)) return false;
+    const linkedTermId = itemTerm(item);
+    if (termId === "NO_TERM") return !linkedTermId;
+    if (termId === "ALL") return true;
+    // Termless events and independent leagues still follow the selected year.
+    return !linkedTermId || linkedTermId === termId;
+  };
+  const classes: Item[] = (data.assignedClassesPaymentInfo || []).filter(inScope);
+  const teams: Item[] = (data.assignedTeamsPaymentInfo || []).filter(inScope);
+  const attendance: Item[] = (data.perDayAttendance || []).filter(inScope);
+  const charges: Item[] = (data.paymentFinancialSummary?.history || []).filter(inScope);
+  const transactions: Item[] = (data.paymentTransactions || []).filter(inScope);
+  const events: Item[] = (data.eventRegistrations || []).filter((item: Item) => inScope({ ...item, event: item.event, termId: item.event?.termId?._id || item.event?.termId }));
   const leagues: Item[] = (() => {
     const records = new Map<string, Item>();
     (data.assignedLeagueInfo || []).forEach((item: Item) => records.set(`${item.leagueId}:${item.teamId}`, item));
     (data.leagueStatistics || []).forEach((item: Item) => {
       const key = `${item.leagueId}:${item.teamId}`;
       const previous = records.get(key);
-      records.set(key, { ...previous, ...item, statistics: { ...(previous?.statistics || {}), ...(item.statistics || {}) } });
+      records.set(key, {
+        ...previous,
+        ...item,
+        termId: item.termId || previous?.termId || null,
+        termName: item.termId ? item.termName : previous?.termName || item.termName,
+        year: item.year || previous?.year,
+        statistics: { ...(previous?.statistics || {}), ...(item.statistics || {}) },
+      });
     });
-    return [...records.values()].filter(inTerm);
+    return [...records.values()].filter(inScope);
   })();
   const marked = attendance.filter((item) => ["PRESENT", "ABSENT", "LATE"].includes(String(item.status).toUpperCase()));
   const attended = marked.filter((item) => ["PRESENT", "LATE"].includes(String(item.status).toUpperCase())).length;
@@ -76,8 +148,16 @@ export default function PlayerTermDashboard({ data, player, termId, termLabel }:
     });
     return [...groups.values()].map((group) => ({ ...group, rows: group.rows.sort((a, b) => toDateOnly(b.sessionDate).localeCompare(toDateOnly(a.sessionDate))) }));
   })();
-  const noteScope = termId === "ALL" ? undefined : termId === "NO_TERM" ? { noTerm: true } : { termId };
-  const { data: notesResponse, isLoading: notesLoading } = useCoachNotes(String(player._id), notesPage, 10, noteScope);
+  const noteScope: { termId?: string; year?: string; noTerm?: boolean } = {};
+  if (termId === "NO_TERM") noteScope.noTerm = true;
+  else if (termId !== "ALL") noteScope.termId = termId;
+  if (year !== "ALL") noteScope.year = year;
+  const { data: notesResponse, isLoading: notesLoading } = useCoachNotes(
+    String(player._id),
+    notesPage,
+    10,
+    Object.keys(noteScope).length ? noteScope : undefined,
+  );
   const notes: Item[] = notesResponse?.data || [];
   const openClass = (item: Item) => navigate("/program/academy", { state: { classId: item.classId || item.contextId, day: item.dayOfWeek } });
   const openCharge = (item: Item) => {
@@ -99,8 +179,8 @@ export default function PlayerTermDashboard({ data, player, termId, termLabel }:
     <nav aria-label="Player details sections" className="flex gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2 pt-1">{tabs.map(({ key, title, icon: Icon, count }) => <button key={key} type="button" onClick={() => setTab(key)} aria-current={tab === key ? "page" : undefined} className={`flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-xs font-semibold ${tab === key ? "border-blue-600 text-blue-700" : "border-transparent text-gray-600 hover:text-blue-700"}`}><Icon size={15} />{title}{count !== undefined && <span className="text-[10px] text-gray-400">{count}</span>}</button>)}</nav>
 
     {tab === "overview" && <div className="space-y-3"><div className="grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric title="Classes" value={classes.length} hint={termLabel} /><Metric title="Attendance" value={marked.length ? `${rate}%` : "—"} hint={`${attended} attended · ${absent} absent`} /><Metric title="Amount due" value={money(due)} /><Metric title="Tournament goals" value={goals} hint={`${appearances} appearances`} /></div><div className="grid gap-3 xl:grid-cols-2">
-      <Panel title="Classes" count={classes.length}>{classes.length ? classes.map((item) => <div key={id(item.classId)} className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 last:border-0"><button type="button" onClick={() => openClass(item)} className="min-w-0 text-left hover:text-blue-700"><span className="block truncate text-sm font-semibold">{item.className}</span><span className="block text-xs text-gray-500">{[item.dayOfWeek, item.startTime, item.location].filter(Boolean).join(" · ") || item.termName || "Class"}</span></button><select aria-label={`Payment status for ${item.className}`} value={String(item.paymentStatus || "UNPAID").toUpperCase()} onChange={(event) => updatePaymentStatus.mutate({ userId: String(player._id), payload: { paymentStatus: event.target.value, classId: id(item.classId) } })} disabled={updatePaymentStatus.isPending} className="max-w-28 border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700"><option value="PAID">Paid</option><option value="UNPAID">Unpaid</option><option value="TRIAL">Trial</option><option value="OVER_DUE">Overdue</option><option value="HANDSHAKE">Handshake</option><option value="TBC">TBC</option><option value="EXTRA">Extra</option><option value="SUBSTITUTE">Substitute</option></select></div>) : <Empty>No classes in this term.</Empty>}</Panel>
-      <div className="space-y-3"><Panel title="Teams and tournaments" count={teams.length + leagues.length}>{teams.length + leagues.length ? <>{teams.map((item) => <LinkRow key={id(item.teamId)} title={item.teamName || "Team"} subtitle="Team" badge={item.paymentStatus} onClick={() => navigate(`/teams/${id(item.teamId)}`)} />)}{leagues.map((item) => <LinkRow key={`${item.leagueId}:${item.teamId}`} title={item.leagueName || "Tournament"} subtitle={`${item.teamName || "Team"} · ${item.statistics?.goals || 0} goals`} badge={item.paymentStatus} onClick={() => navigate(`/leagues/${id(item.leagueId)}`)} />)}</> : <Empty>No teams or tournaments in this term.</Empty>}</Panel><Panel title="Events and holiday programs" count={events.length}>{events.length ? events.map((item) => <LinkRow key={id(item._id)} title={item.event?.title || "Event"} subtitle={`${shownDate(item.event?.startDate)} · ${item.event?.category || item.event?.eventType || "Event"}`} badge={item.paymentStatus || item.status} onClick={() => navigate(`/event-details/${id(item.event?._id)}`)} />) : <Empty>No events in this term.</Empty>}</Panel></div>
+      <Panel title="Classes" count={classes.length}>{classes.length ? classes.map((item) => <StatusRow key={id(item.classId)} title={item.className || "Class"} subtitle={[item.dayOfWeek, item.startTime, item.location].filter(Boolean).join(" · ") || item.termName || "Class"} paymentStatus={item.paymentStatus} onClick={() => openClass(item)} onStatusChange={(paymentStatus) => updatePaymentStatus.mutate({ userId: String(player._id), payload: { paymentStatus, classId: id(item.classId) } })} disabled={updatePaymentStatus.isPending} />) : <Empty>No classes in this term.</Empty>}</Panel>
+      <div className="space-y-3"><Panel title="Teams and tournaments" count={teams.length + leagues.length}>{teams.length + leagues.length ? <>{teams.map((item) => <StatusRow key={id(item.teamId)} title={item.teamName || "Team"} subtitle="Team" paymentStatus={item.paymentStatus} onClick={() => navigate(`/teams/${id(item.teamId)}`)} onStatusChange={(paymentStatus) => updatePaymentStatus.mutate({ userId: String(player._id), payload: { paymentStatus, teamId: id(item.teamId) } })} disabled={updatePaymentStatus.isPending} />)}{leagues.map((item) => <StatusRow key={`${item.leagueId}:${item.teamId}`} title={item.leagueName || "Tournament"} subtitle={`${item.teamName || "Team"} · ${item.statistics?.goals || 0} goals`} paymentStatus={item.paymentStatus} onClick={() => navigate(`/leagues/${id(item.leagueId)}`)} onStatusChange={(paymentStatus) => updatePaymentStatus.mutate({ userId: String(player._id), payload: { paymentStatus, teamId: id(item.teamId), leagueId: id(item.leagueId) } })} disabled={updatePaymentStatus.isPending} />)}</> : <Empty>No teams or tournaments in this term.</Empty>}</Panel><Panel title="Events and holiday programs" count={events.length}>{events.length ? events.map((item) => <StatusRow key={id(item._id)} title={item.event?.title || "Event"} subtitle={`${shownDate(item.event?.startDate)} · ${item.event?.category || item.event?.eventType || "Event"}`} paymentStatus={item.paymentStatus || item.status} onClick={() => navigate(`/event-details/${id(item.event?._id)}`)} onStatusChange={(paymentStatus) => updateEventPaymentStatus.mutate({ registrationId: id(item._id), paymentStatus, eventId: id(item.event?._id) })} disabled={updateEventPaymentStatus.isPending} />) : <Empty>No events in this term.</Empty>}</Panel></div>
     </div></div>}
 
     {tab === "attendance" && <div className="space-y-3"><div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><Metric title="Attendance rate" value={marked.length ? `${rate}%` : "—"} /><Metric title="Attended" value={attended} /><Metric title="Absent" value={absent} /><Metric title="Sessions" value={attendance.length} /></div><Panel title="Attendance by activity" count={groupedAttendance.length}>{groupedAttendance.length ? groupedAttendance.map((group) => {
@@ -146,7 +226,7 @@ export default function PlayerTermDashboard({ data, player, termId, termLabel }:
       {termId !== "ALL" && termId !== "NO_TERM" && <p className="text-xs text-gray-500">Family orders without a term appear under All terms or No term linked.</p>}
     </div>}
 
-    {tab === "competition" && <div className="space-y-3"><div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><Metric title="Tournaments" value={leagues.length} /><Metric title="Appearances" value={appearances} /><Metric title="Goals" value={goals} /><Metric title="Assists" value={leagues.reduce((sum, item) => sum + (Number(item.statistics?.assists) || 0), 0)} /></div><Panel title="Tournament performance" count={leagues.length}>{leagues.length ? leagues.map((item) => <div key={`${item.leagueId}:${item.teamId}`} className="border-b border-gray-100 px-4 py-3 last:border-0"><div className="flex flex-wrap items-center justify-between gap-2"><button onClick={() => navigate(`/leagues/${id(item.leagueId)}`)} className="text-left text-sm font-bold text-blue-700 hover:underline">{item.leagueName} <ExternalLink size={12} className="inline" /></button><Badge value={item.paymentStatus} /></div><p className="mt-1 text-xs text-gray-500">{item.teamName || "Team"} · {item.season || termLabel}</p><div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700"><span><strong>{item.statistics?.appearances || 0}</strong> appearances</span><span><strong>{item.statistics?.goals || 0}</strong> goals</span><span><strong>{item.statistics?.assists || 0}</strong> assists</span><span><strong>{item.statistics?.cleanSheets || 0}</strong> clean sheets</span><span><strong>{item.statistics?.yellowCards || 0}</strong> yellow cards</span><span><strong>{item.statistics?.redCards || 0}</strong> red cards</span><span><strong>{item.statistics?.minutesPlayed || 0}</strong> minutes</span></div></div>) : <Empty>No tournament statistics in this term.</Empty>}</Panel><Panel title="Team assignments" count={teams.length}>{teams.length ? teams.map((item) => <LinkRow key={id(item.teamId)} title={item.teamName || "Team"} subtitle={item.termName || termLabel} badge={item.paymentStatus} onClick={() => navigate(`/teams/${id(item.teamId)}`)} />) : <Empty>No team assignments in this term.</Empty>}</Panel>{termId === "ALL" && player.statistics && <Panel title="Career totals"><div className="flex flex-wrap gap-x-5 gap-y-2 px-4 py-3 text-xs text-gray-700"><span>{player.statistics.appearances || 0} appearances</span><span>{player.statistics.goals || 0} goals</span><span>{player.statistics.assists || 0} assists</span><span>{player.statistics.cleanSheets || 0} clean sheets</span></div></Panel>}</div>}
+    {tab === "competition" && <div className="space-y-3"><div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><Metric title="Tournaments" value={leagues.length} /><Metric title="Appearances" value={appearances} /><Metric title="Goals" value={goals} /><Metric title="Assists" value={leagues.reduce((sum, item) => sum + (Number(item.statistics?.assists) || 0), 0)} /></div><Panel title="Tournament performance" count={leagues.length}>{leagues.length ? leagues.map((item) => <div key={`${item.leagueId}:${item.teamId}`} className="border-b border-gray-100 px-4 py-3 last:border-0"><div className="flex flex-wrap items-center justify-between gap-2"><button onClick={() => navigate(`/leagues/${id(item.leagueId)}`)} className="text-left text-sm font-bold text-blue-700 hover:underline">{item.leagueName} <ExternalLink size={12} className="inline" /></button><PaymentStatusControl value={item.paymentStatus} name={item.leagueName || "Tournament"} onChange={(paymentStatus) => updatePaymentStatus.mutate({ userId: String(player._id), payload: { paymentStatus, teamId: id(item.teamId), leagueId: id(item.leagueId) } })} disabled={updatePaymentStatus.isPending} /></div><p className="mt-1 text-xs text-gray-500">{item.teamName || "Team"} · {item.season || termLabel}</p><div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700"><span><strong>{item.statistics?.appearances || 0}</strong> appearances</span><span><strong>{item.statistics?.goals || 0}</strong> goals</span><span><strong>{item.statistics?.assists || 0}</strong> assists</span><span><strong>{item.statistics?.cleanSheets || 0}</strong> clean sheets</span><span><strong>{item.statistics?.yellowCards || 0}</strong> yellow cards</span><span><strong>{item.statistics?.redCards || 0}</strong> red cards</span><span><strong>{item.statistics?.minutesPlayed || 0}</strong> minutes</span></div></div>) : <Empty>No tournament statistics in this term.</Empty>}</Panel><Panel title="Team assignments" count={teams.length}>{teams.length ? teams.map((item) => <StatusRow key={id(item.teamId)} title={item.teamName || "Team"} subtitle={item.termName || termLabel} paymentStatus={item.paymentStatus} onClick={() => navigate(`/teams/${id(item.teamId)}`)} onStatusChange={(paymentStatus) => updatePaymentStatus.mutate({ userId: String(player._id), payload: { paymentStatus, teamId: id(item.teamId) } })} disabled={updatePaymentStatus.isPending} />) : <Empty>No team assignments in this term.</Empty>}</Panel>{termId === "ALL" && player.statistics && <Panel title="Career totals"><div className="flex flex-wrap gap-x-5 gap-y-2 px-4 py-3 text-xs text-gray-700"><span>{player.statistics.appearances || 0} appearances</span><span>{player.statistics.goals || 0} goals</span><span>{player.statistics.assists || 0} assists</span><span>{player.statistics.cleanSheets || 0} clean sheets</span></div></Panel>}</div>}
 
     {tab === "notes" && <div className="grid gap-3 xl:grid-cols-2"><Panel title="Admin note"><div className="px-4 py-4"><p className="mb-2 text-xs text-gray-500">Applies across all terms.</p><p className="whitespace-pre-wrap text-sm leading-6 text-gray-800">{player.adminNote || "No admin note recorded."}</p></div></Panel><Panel title="Coach notes" count={notesResponse?.total || 0}>{notesLoading ? <Empty>Loading notes…</Empty> : notes.length ? <>{notes.map((note) => <div key={id(note._id)} className="border-b border-gray-100 px-4 py-3 last:border-0"><div className="flex justify-between gap-2"><span className="text-xs font-bold text-blue-700">{label(note.noteType)}</span><time className="text-xs text-gray-500">{shownDate(note.createdAt)}</time></div><p className="mt-1 whitespace-pre-wrap text-sm text-gray-800">{note.description}</p><p className="mt-1 text-xs text-gray-500">{note.classId?.name || "General note"} · {note.coach?.name || "Coach"}</p></div>)}<div className="flex items-center justify-between px-4 py-3 text-xs text-gray-500"><span>Page {notesResponse?.page || 1} of {Math.max(1, notesResponse?.totalPages || 1)}</span><div className="flex gap-2"><button disabled={notesPage <= 1} onClick={() => setNotesPage((page) => page - 1)} className="border border-gray-200 px-2 py-1 disabled:opacity-40">Previous</button><button disabled={notesPage >= (notesResponse?.totalPages || 1)} onClick={() => setNotesPage((page) => page + 1)} className="border border-gray-200 px-2 py-1 disabled:opacity-40">Next</button></div></div></> : <Empty>No coach notes in this term.</Empty>}</Panel></div>}
   </div>;
